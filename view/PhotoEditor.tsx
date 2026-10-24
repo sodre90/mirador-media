@@ -4,7 +4,7 @@ import { NO_EDITS, type Box, type MediaDocument } from "../shared/document.ts";
 import { markMessage } from "../shared/mark-message.ts";
 import { applyOperation } from "../shared/operations.ts";
 import { capturedFrame, exposurePreview } from "./frame.ts";
-import { ClearBox, Composer, EditsLine, Header, MarkList, TaskBar, useMediaUrl, type Mode } from "./parts.tsx";
+import { BoxToggle, Composer, EditChips, Header, markNumber, MarkList, TaskResult, useMediaUrl, type Mode } from "./parts.tsx";
 import { Player, type ShownBox } from "./Player.tsx";
 
 /** A photo, with its edits previewed, marked with a box. */
@@ -38,13 +38,15 @@ export function PhotoEditor({ state }: { state: AppDocumentState<MediaDocument> 
   const boxes: ShownBox[] =
     mode === "rendered"
       ? []
-      : [...document.marks.filter((mark) => mark.box && !mark.done).map((mark) => ({ key: mark.id, box: mark.box!, label: mark.id })), ...(box ? [{ key: "new", box, label: "new" }] : [])];
+      : [...document.marks.filter((mark) => mark.box && !mark.done).map((mark) => ({ key: mark.id, box: mark.box!, label: markNumber(mark) })), ...(box ? [{ key: "new", box, label: "new" }] : [])];
   const problem = shown && "problem" in shown ? shown.problem : null;
 
   return (
     <main>
-      <Header file={document.source.file} facts={probe ? `${probe.width}×${probe.height}` : "reading…"} document={document} mode={mode} onShow={setMode} />
+      <Header file={document.source.file} facts={probe ? `${probe.width}×${probe.height}` : "reading…"} document={document} task={task} mode={mode} onShow={setMode} />
+      <TaskResult task={task} document={document} mode={mode} onShowRendered={() => setMode("rendered")} />
       {problem && <p className="problem">{problem}</p>}
+      <EditChips mode={mode} document={document} />
       <Player
         picture={{ kind: "photo", ref: image }}
         src={shown && "url" in shown ? shown.url : null}
@@ -55,19 +57,7 @@ export function PhotoEditor({ state }: { state: AppDocumentState<MediaDocument> 
         canDraw={mode !== "rendered" && !!probe}
         onBox={setBox}
       />
-      <EditsLine mode={mode} edits={edits} />
-      <TaskBar task={task} document={document} />
-      {mode !== "rendered" && probe && (
-        <Composer
-          where={
-            <>
-              <span>{box ? `box ${box.width}×${box.height} px` : "drag across the photo to draw a box"}</span>
-              <ClearBox box={box} onClear={() => setBox(null)} />
-            </>
-          }
-          send={send}
-        />
-      )}
+      {mode !== "rendered" && probe && <Composer marked={<BoxToggle box={box} onClear={() => setBox(null)} hint="drag on the photo" />} send={send} />}
       <MarkList document={document} />
     </main>
   );

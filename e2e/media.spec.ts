@@ -180,7 +180,9 @@ test("mark 0:39 with a box and send 'too dark here'; the agent trims, cuts, slow
     await view(page).locator("video").evaluate((element: HTMLVideoElement) => void (element.currentTime = 39.05));
     await expect(view(page).getByLabel("Current time")).toHaveText("0:39.05 / 0:45.00");
     await drawBox(page, [0.25, 0.25], [0.75, 0.75]);
-    await expect(view(page).locator(".composer .where")).toContainText("at 0:39.05 · frame 390 · box 160×120 px");
+    await expect(view(page).locator(".composer .when")).toHaveText("at 0:39.05");
+    await expect(view(page).getByLabel("Current time")).toHaveAttribute("title", "Frame 390");
+    await expect(view(page).getByRole("button", { name: "Clear the box" })).toHaveText("▢ 160×120 ×");
     await view(page).getByLabel("What's wrong here").fill("too dark here");
     await view(page).getByRole("button", { name: "Send to the agent" }).click();
     await expect(view(page).locator(".composer [role=status]")).toHaveText("Sent to the agent as m1.");
@@ -200,14 +202,13 @@ test("mark 0:39 with a box and send 'too dark here'; the agent trims, cuts, slow
     expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "cut", start: 33, end: 35 } })).toBe("Cut 0:33.00–0:35.00 out.");
     expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "exposure", ev: 1 } })).toBe("Set the exposure to +1.00 EV.");
     expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "mark-done", mark: "m1" } })).toBe("Marked m1 done.");
-    await expect(view(page).locator(".edits")).toHaveText("Edits: trim 0:30.00–0:42.00; cut 0:33.00–0:35.00; exposure +1.00 EV");
+    await expect(view(page).locator(".chip")).toHaveText(["Exposure +1.00 EV×"]);
+    await expect(view(page).locator(".timeline .kept")).toHaveCount(2);
     expect(await mirador.callCanvasTool(host, conversation, "app_state", {})).toContain("The result is 0:10.00 long, in 2 pieces.");
     expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "speed", rate: 0.5, start: 35, end: 36 } })).toBe("Set the speed to 0.5× from 0:35.00 to 0:36.00.");
     expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "volume", level: 0, start: 38, end: 42 } })).toBe("Set the volume to 0% (muted) from 0:38.00 to 0:42.00.");
     expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "exposure", ev: 2, start: 40, end: 42 } })).toBe("Set the exposure to +2.00 EV from 0:40.00 to 0:42.00.");
-    await expect(view(page).locator(".edits")).toHaveText(
-      "Edits: trim 0:30.00–0:42.00; cut 0:33.00–0:35.00; exposure +1.00 EV, +2.00 EV from 0:40.00 to 0:42.00; speed 0.5× from 0:35.00 to 0:36.00; volume 0% (muted) from 0:38.00 to 0:42.00",
-    );
+    await expect(view(page).locator(".chip")).toHaveText(["Exposure +1.00 EV×"]);
     expect(await mirador.callCanvasTool(host, conversation, "app_state", {})).toContain("The result is 0:11.00 long, in 2 pieces.");
     await expect(view(page).locator("video")).toHaveCSS("filter", "brightness(2)");
     await expect(view(page).locator(".timeline .kept")).toHaveCount(2);
@@ -241,10 +242,10 @@ test("mark 0:39 with a box and send 'too dark here'; the agent trims, cuts, slow
     expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "turn", degrees: 90 } })).toBe("Turned 90° clockwise.");
     await expect.poll(async () => view(page).locator(".frame").boundingBox().then((frame) => +(frame!.width / frame!.height).toFixed(2))).toBe(0.75);
     await drawBox(page, [0, 0], [1, 0.5]);
-    await expect(view(page).locator(".composer .where")).toContainText("box 80×120 px");
+    await expect(view(page).getByRole("button", { name: "Clear the box" })).toHaveText("▢ 80×120 ×");
     await view(page).getByRole("button", { name: "Clear the box" }).click();
     expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "straighten", degrees: 5 } })).toBe("Straightened 5.0° clockwise.");
-    await expect(view(page).locator(".edits")).toContainText("; crop x 80, y 60, 160×120 px; straightened 5.0° clockwise; turned 90° clockwise");
+    await expect(view(page).locator(".chip")).toHaveText(["Exposure +1.00 EV×", "Crop 160×120×", "Straighten 5.0°×", "Turn 90°×"]);
     expect(await mirador.callCanvasTool(host, conversation, "app_state", {})).toContain("The result is 0:11.00 long, in 2 pieces. Its frame is 120×160.");
     await view(page).getByRole("button", { name: "Source" }).click();
     await expect.poll(async () => view(page).locator(".frame").boundingBox().then((frame) => +(frame!.width / frame!.height).toFixed(2))).toBe(1.33);
@@ -266,7 +267,8 @@ test("mark 0:39 with a box and send 'too dark here'; the agent trims, cuts, slow
     expect(await view(page).locator("video").evaluate((element: HTMLVideoElement) => element.playbackRate)).toBe(1);
     await view(page).getByRole("button", { name: "Source" }).click();
     await expect(view(page).getByLabel("Current time")).toHaveText("0:36.00 / 0:45.00");
-    await expect(view(page).locator(".edits")).toHaveText(/^As shot\. Edits: trim 0:30\.00–0:42\.00; cut .* \(Preview shows them\)$/);
+    await expect(view(page).locator(".chips-note")).toHaveText("As shot · Preview shows the edits");
+    await expect(view(page).locator(".chip")).toHaveCount(0);
   });
 
   await test.step("the preview shows the frame as the render made it", async () => {
@@ -296,7 +298,7 @@ test("mark a box on a photo and send 'sky too bright'; the agent brightens, crop
 
   await test.step("the user draws a box on the photo and sends what's wrong there, with the photo", async () => {
     await drawBox(page, [0.25, 0.25], [0.75, 0.75]);
-    await expect(view(page).locator(".composer .where")).toHaveText("box 160×120 pxClear the box");
+    await expect(view(page).getByRole("button", { name: "Clear the box" })).toHaveText("▢ 160×120 ×");
     await view(page).getByLabel("What's wrong here").fill("sky too bright");
     await view(page).getByRole("button", { name: "Send to the agent" }).click();
     await expect(view(page).locator(".composer [role=status]")).toHaveText("Sent to the agent as m1.");
@@ -315,7 +317,7 @@ test("mark a box on a photo and send 'sky too bright'; the agent brightens, crop
     expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "exposure", ev: 1 } })).toBe("Set the exposure to +1.00 EV.");
     expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "crop", x: 80, y: 60, width: 161, height: 121 } })).toBe("Cropped to x 80, y 60, 161×121 px.");
     expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "turn", degrees: 90 } })).toBe("Turned 90° clockwise.");
-    await expect(view(page).locator(".edits")).toHaveText("Edits: exposure +1.00 EV; crop x 80, y 60, 161×121 px; turned 90° clockwise");
+    await expect(view(page).locator(".chip")).toHaveText(["Exposure +1.00 EV×", "Crop 161×121×", "Turn 90°×"]);
     expect(await mirador.callCanvasTool(host, conversation, "app_state", {})).toContain("Its frame is 121×161.");
     await expect(view(page).locator(".frame img")).toHaveCSS("filter", "brightness(2)");
     await expect.poll(async () => view(page).locator(".frame").boundingBox().then((frame) => +(frame!.width / frame!.height).toFixed(3))).toBe(+(121 / 161).toFixed(3));
@@ -326,12 +328,29 @@ test("mark a box on a photo and send 'sky too bright'; the agent brightens, crop
       /^Rendered photo\.edited\.jpg \(edits: exposure \+1\.00 EV; crop x 80, y 60, 161×121 px; turned 90° clockwise\) in \d+ s; the user can compare it with photo\.jpg in the app\.$/,
     );
     expect(sizeOf(join(host.projectDir, "photo.edited.jpg"))).toBe("121x161");
+    await expect(view(page).locator(".task-result")).toHaveText("Rendered photo.edited.jpg.Compare it");
     const previewed = await frameCells(page);
-    await view(page).getByRole("button", { name: "Rendered" }).click();
+    await view(page).getByRole("button", { name: "Compare it" }).click();
+    await expect(view(page).getByRole("button", { name: "Rendered" })).toHaveAttribute("aria-pressed", "true");
     await expect(view(page).locator(".frame img")).toHaveCSS("filter", "none");
     await expect.poll(async () => likeness(previewed, await frameCells(page)), { timeout: 10_000 }).toBeGreaterThan(0.9);
     await view(page).getByRole("button", { name: "Source" }).click();
-    await expect(view(page).locator(".edits")).toHaveText(/^As shot\. Edits: exposure .* \(Preview shows them\)$/);
+    await expect(view(page).locator(".chips-note")).toHaveText("As shot · Preview shows the edits");
     await expect.poll(async () => view(page).locator(".frame").boundingBox().then((frame) => +(frame!.width / frame!.height).toFixed(2))).toBe(1.33);
+  });
+
+  await test.step("the user takes the turn off with its chip and ticks the mark off, and the agent reads both", async () => {
+    await view(page).getByRole("button", { name: "Preview" }).click();
+    await view(page).getByRole("button", { name: "Take off the turn" }).click();
+    await expect(view(page).locator(".chip")).toHaveText(["Exposure +1.00 EV×", "Crop 161×121×"]);
+    await expect.poll(async () => view(page).locator(".frame").boundingBox().then((frame) => +(frame!.width / frame!.height).toFixed(3))).toBe(+(161 / 121).toFixed(3));
+    await expect(view(page).getByRole("button", { name: "Rendered (older)" })).toBeVisible();
+    await view(page).getByLabel("m1 done").click();
+    await expect(view(page).getByLabel("m1 done")).toBeChecked();
+    await expect(view(page).locator(".marks li.done")).toHaveCount(1);
+    const state = await mirador.callCanvasTool(host, conversation, "app_state", {});
+    expect(state).toContain("Its frame is 161×121.");
+    expect(state).toContain("- m1 box x 80, y 60, 160×120 px: sky too bright (done)");
+    expect(state).toContain("user: Turned back to as shot.");
   });
 });

@@ -100,6 +100,9 @@ const SETTING_OPERATIONS: Record<SettingName, { field: string; places: number; a
   volume: { field: "level", places: 2, asShot: "as recorded", refusal: "level must be from 0 to 4; 0 mutes and 1 is as recorded." },
 };
 
+/** The operation that sets a setting for the whole clip. */
+export const settingOperation = (name: SettingName, value: number) => ({ op: name, [SETTING_OPERATIONS[name].field]: value });
+
 /** The part of the source an operation gives with start and end, or null when it gives neither, for the whole clip. */
 function rangeOf(document: MediaDocument, operation: Record<string, unknown>) {
   if (operation.start === undefined && operation.end === undefined) return null;

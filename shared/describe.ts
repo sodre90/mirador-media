@@ -1,6 +1,6 @@
 import { changesSetting, hasEdits, isPhoto, renderedName, sameEdits, SETTING_NAMES, SETTINGS, type Edits, type MediaDocument, type Mark, type SettingName } from "./document.ts";
 import { framed } from "./geometry.ts";
-import { describeBox, describeSpan, describeStraighten, describeTurn, describeWhen } from "./operations.ts";
+import { describeBox, describeSpan, describeStraighten, describeTurn, describeWhen, settingOperation } from "./operations.ts";
 import { keptParts, keptPieces, resultLength } from "./timeline.ts";
 import { formatFps, formatTime, SETTING_FORMATS } from "./time.ts";
 
@@ -45,6 +45,27 @@ export function describeEdits(edits: Edits) {
   const straighten = edits.straighten !== 0 && `straightened ${describeStraighten(edits.straighten)}`;
   const turn = edits.turn !== 0 && `turned ${describeTurn(edits.turn)}`;
   return [trim, cuts, ...SETTING_NAMES.map((name) => describeSetting(edits, name)), crop, straighten, turn].filter(Boolean).join("; ");
+}
+
+/** An edit of the whole picture, as the pane shows it, with the operation that takes it off. */
+export interface WholeClipEdit {
+  name: string;
+  value: string;
+  undo: Record<string, unknown>;
+}
+
+const SETTING_TITLES: Record<SettingName, string> = { exposure: "Exposure", speed: "Speed", volume: "Volume" };
+
+export function wholeClipEdits(edits: Edits): WholeClipEdit[] {
+  const settings = SETTING_NAMES.filter((name) => edits[name].clip !== SETTINGS[name].asShot).map((name) => ({
+    name: SETTING_TITLES[name],
+    value: SETTING_FORMATS[name](edits[name].clip),
+    undo: settingOperation(name, SETTINGS[name].asShot),
+  }));
+  const crop: WholeClipEdit | null = edits.crop && { name: "Crop", value: `${edits.crop.width}×${edits.crop.height}`, undo: { op: "uncrop" } };
+  const straighten: WholeClipEdit | false = edits.straighten !== 0 && { name: "Straighten", value: `${edits.straighten > 0 ? "" : "−"}${Math.abs(edits.straighten).toFixed(1)}°`, undo: { op: "straighten", degrees: 0 } };
+  const turn: WholeClipEdit | false = edits.turn !== 0 && { name: "Turn", value: `${edits.turn}°`, undo: { op: "turn", degrees: 0 } };
+  return [...settings, crop, straighten, turn].filter((edit): edit is WholeClipEdit => Boolean(edit));
 }
 
 /** The clip's value when it isn't as shot, then each range's: "exposure +1.00 EV, +2.00 EV from 0:40.00 to 0:42.00". */

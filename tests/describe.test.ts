@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { describeDocument, describeEdits, OPERATIONS_HELP, PHOTO_OPERATIONS_HELP } from "../shared/describe.ts";
+import { describeDocument, describeEdits, OPERATIONS_HELP, PHOTO_OPERATIONS_HELP, wholeClipEdits } from "../shared/describe.ts";
 import { newDocument, NO_EDITS, type MediaDocument } from "../shared/document.ts";
 import { markMessage } from "../shared/mark-message.ts";
+import { applyOperation } from "../shared/operations.ts";
 import { formatTime, frameAt, frameMiddle } from "../shared/time.ts";
 
 const probe = { width: 1920, height: 1080, duration: 83.4, fps: 29.97, audio: true };
@@ -85,6 +86,28 @@ describe("describeDocument", () => {
     expect(described).toContain("Video: clip.webm, not read yet; app_run probe reads its size, length and frame rate.");
     expect(described).toContain("Edits, which the user sees at once in the preview: none.");
     expect(described).toContain("Not rendered yet; app_run render writes clip.edited.webm.");
+  });
+});
+
+describe("wholeClipEdits", () => {
+  test("lists what changes the whole picture, each with the operation that takes it off, and leaves ranges to the timeline", () => {
+    const edits = { ...NO_EDITS, exposure: { clip: 0.5, ranges: [{ start: 1, end: 2, value: 2 }] }, speed: { clip: 1, ranges: [{ start: 3, end: 4, value: 2 }] }, volume: { clip: 0, ranges: [] }, crop: { x: 10, y: 20, width: 1600, height: 900 }, straighten: -1.5, turn: 90 as const };
+    expect(wholeClipEdits(edits)).toEqual([
+      { name: "Exposure", value: "+0.50 EV", undo: { op: "exposure", ev: 0 } },
+      { name: "Volume", value: "0% (muted)", undo: { op: "volume", level: 1 } },
+      { name: "Crop", value: "1600×900", undo: { op: "uncrop" } },
+      { name: "Straighten", value: "−1.5°", undo: { op: "straighten", degrees: 0 } },
+      { name: "Turn", value: "90°", undo: { op: "turn", degrees: 0 } },
+    ]);
+    expect(wholeClipEdits(NO_EDITS)).toEqual([]);
+  });
+
+  test("each undo puts the edit back as shot and keeps the ranges", () => {
+    const source = { file: "clip.mp4", probe: { width: 1920, height: 1080, duration: 60, fps: 30, audio: true } };
+    const operations = [{ op: "exposure", ev: 1 }, { op: "exposure", ev: 2, start: 1, end: 2 }, { op: "speed", rate: 2 }, { op: "crop", x: 0, y: 0, width: 100, height: 100 }, { op: "straighten", degrees: 3 }, { op: "turn", degrees: 180 }];
+    const edited = operations.reduce((document, operation) => applyOperation(document, operation).document, { ...newDocument(), source } as MediaDocument);
+    const undone = wholeClipEdits(edited.edits).reduce((document, { undo }) => applyOperation(document, undo).document, edited);
+    expect(undone.edits).toEqual({ ...NO_EDITS, exposure: { clip: 0, ranges: [{ start: 1, end: 2, value: 2 }] } });
   });
 });
 

@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AppDocumentState } from "../mirador/api.ts";
-import { changesSetting, NO_EDITS, type Box, type MediaDocument, type Probe } from "../shared/document.ts";
+import { changesSetting, NO_EDITS, type Box, type MediaDocument } from "../shared/document.ts";
 import { markMessage } from "../shared/mark-message.ts";
-import { applyOperation, describeWhen } from "../shared/operations.ts";
+import { applyOperation } from "../shared/operations.ts";
 import { formatTime, frameAt, frameMiddle } from "../shared/time.ts";
 import { keptMoment, keptParts, keptPieces, looksAt, resultTime, sourceTime } from "../shared/timeline.ts";
 import { capturedFrame, exposurePreview } from "./frame.ts";
-import { ClearBox, Composer, EditsLine, Header, MarkList, TaskBar, useMediaUrl, type Mode } from "./parts.tsx";
+import { NextFrameIcon, PauseIcon, PlayIcon, PreviousFrameIcon } from "./icons.tsx";
+import { BoxToggle, Composer, EditChips, Header, markNumber, MarkList, TaskResult, useMediaUrl, type Mode } from "./parts.tsx";
 import { usePlayhead } from "./playhead.ts";
 import { Player, type ShownBox } from "./Player.tsx";
 import { useSoundLevel } from "./sound.ts";
@@ -18,32 +19,22 @@ const DEFAULT_FPS = 30;
 const composedWhen = (time: number, rangeStart: number | null) =>
   rangeStart === null ? { at: time, end: null } : { at: Math.min(rangeStart, time), end: Math.max(rangeStart, time) };
 
-function MomentAndBox({
-  probe,
-  time,
-  box,
-  rangeStart,
-  onRange,
-  onClearBox,
-}: {
-  probe: Probe;
-  time: number;
-  box: Box | null;
-  rangeStart: number | null;
-  onRange: (start: number | null) => void;
-  onClearBox: () => void;
-}) {
+/** What the note is about: the moment, or the range from where it started to now, and the box. */
+function MomentAndBox({ time, box, rangeStart, onRange, onClearBox }: { time: number; box: Box | null; rangeStart: number | null; onRange: (start: number | null) => void; onClearBox: () => void }) {
   const when = composedWhen(time, rangeStart);
   return (
     <>
-      <span>
-        {describeWhen(when)} · frame {frameAt(when.at, probe.fps)}
-        {box ? ` · box ${box.width}×${box.height} px` : " · drag across the frame to draw a box"}
-      </span>
-      <ClearBox box={box} onClear={onClearBox} />
-      <button type="button" className="link" onClick={() => onRange(rangeStart === null ? time : null)}>
-        {rangeStart === null ? "Start a range here" : "Just this moment"}
+      <span className="when">{when.end === null ? `at ${formatTime(when.at)}` : `${formatTime(when.at)}–${formatTime(when.end)}`}</span>
+      <button
+        type="button"
+        className={`toggle${rangeStart === null ? "" : " on"}`}
+        aria-label={rangeStart === null ? "Start a range here" : "Just this moment"}
+        title={rangeStart === null ? "Start a range here, then play or scrub to its end" : "Just this moment"}
+        onClick={() => onRange(rangeStart === null ? time : null)}
+      >
+        ⟷ Range
       </button>
+      <BoxToggle box={box} onClear={onClearBox} hint="drag on the frame" />
     </>
   );
 }
@@ -165,7 +156,7 @@ export function VideoEditor({ state }: { state: AppDocumentState<MediaDocument> 
 
   const atThisFrame = document.marks.filter((mark) => mark.box && !mark.done && (mark.end === null ? frameAt(mark.at, fps) === frameAt(time, fps) : time >= mark.at && time <= mark.end));
   const boxes: ShownBox[] = [
-    ...(mode === "rendered" ? [] : atThisFrame.map((mark) => ({ key: mark.id, box: mark.box!, label: mark.id }))),
+    ...(mode === "rendered" ? [] : atThisFrame.map((mark) => ({ key: mark.id, box: mark.box!, label: markNumber(mark) }))),
     ...(box && mode !== "rendered" ? [{ key: "new", box, label: "new" }] : []),
   ];
   const problem = shown && "problem" in shown ? shown.problem : null;
@@ -176,10 +167,13 @@ export function VideoEditor({ state }: { state: AppDocumentState<MediaDocument> 
         file={document.source.file}
         facts={probe ? `${probe.width}×${probe.height} · ${Math.round(probe.fps * 100) / 100} fps · ${formatTime(probe.duration)}` : "reading…"}
         document={document}
+        task={task}
         mode={mode}
         onShow={show}
       />
+      <TaskResult task={task} document={document} mode={mode} onShowRendered={() => show("rendered")} />
       {problem && <p className="problem">{problem}</p>}
+      <EditChips mode={mode} document={document} />
       <Player
         picture={{ kind: "video", ref: video }}
         src={shown && "url" in shown ? shown.url : null}
@@ -190,37 +184,31 @@ export function VideoEditor({ state }: { state: AppDocumentState<MediaDocument> 
         canDraw={mode !== "rendered" && !!probe}
         onBox={setBox}
       />
-      <div className="controls">
-        <button type="button" aria-label="Previous frame" onClick={() => step(-1)}>
-          ◀︎
+      <div className="transport">
+        <button type="button" className="icon" aria-label="Previous frame" title="Previous frame (←)" onClick={() => step(-1)}>
+          <PreviousFrameIcon />
         </button>
-        <button type="button" aria-label={playhead.playing ? "Pause" : "Play"} onClick={togglePlay}>
-          {playhead.playing ? "❚❚" : "▶︎"}
+        <button type="button" className="icon play" aria-label={playhead.playing ? "Pause" : "Play"} title={playhead.playing ? "Pause (Space)" : "Play (Space)"} onClick={togglePlay}>
+          {playhead.playing ? <PauseIcon /> : <PlayIcon />}
         </button>
-        <button type="button" aria-label="Next frame" onClick={() => step(1)}>
-          ▶︎❙
+        <button type="button" className="icon" aria-label="Next frame" title="Next frame (→)" onClick={() => step(1)}>
+          <NextFrameIcon />
         </button>
-        <span className="time" aria-label="Current time">
-          {formatTime(time)} / {formatTime(playhead.duration)}
+        <span className="time" aria-label="Current time" title={probe ? `Frame ${frameAt(time, probe.fps)}` : undefined}>
+          <b>{formatTime(time)}</b> <span>/ {formatTime(playhead.duration)}</span>
         </span>
-        <Timeline
-          duration={playhead.duration}
-          time={time}
-          kept={mode === "rendered" ? null : editedParts}
-          settings={mode === "rendered" ? null : edits}
-          marks={mode === "rendered" ? [] : document.marks}
-          rangeStart={rangeStart}
-          onSeek={(seconds) => seek(seconds)}
-        />
+        <span className="hint keys">Space plays · ← → step a frame</span>
       </div>
-      <EditsLine mode={mode} edits={document.edits} />
-      <TaskBar task={task} document={document} />
-      {mode !== "rendered" && probe && (
-        <Composer
-          where={<MomentAndBox probe={probe} time={time} box={box} rangeStart={rangeStart} onRange={setRangeStart} onClearBox={() => setBox(null)} />}
-          send={send}
-        />
-      )}
+      <Timeline
+        duration={playhead.duration}
+        time={time}
+        kept={mode === "rendered" ? null : editedParts}
+        settings={mode === "rendered" ? null : edits}
+        marks={mode === "rendered" ? [] : document.marks}
+        rangeStart={rangeStart}
+        onSeek={(seconds) => seek(seconds)}
+      />
+      {mode !== "rendered" && probe && <Composer marked={<MomentAndBox time={time} box={box} rangeStart={rangeStart} onRange={setRangeStart} onClearBox={() => setBox(null)} />} send={send} />}
       <MarkList document={document} onSeek={seek} />
     </main>
   );

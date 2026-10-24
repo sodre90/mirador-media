@@ -12,9 +12,10 @@ what's wrong instead of describing it in words, and the agent changes it.
   and every one can be undone.
 - **The pane previews edits at once:** playback keeps to what the trim and the cuts keep, at each range's speed, as bright
   and as loud as it is set there, in the frame the crop, the straightening and the turn make. Boxes you draw there are
-  still in the source's pixels. When its edits are done, the agent renders them into `clip.edited.mp4` next to
-  `clip.mp4` (a WebM stays WebM). Each render replaces the previous one, and you compare the rendered file with the
-  source in the pane, at the same moment of the video.
+  still in the source's pixels. An edit of the whole picture shows as a chip above it, which you take off with its ×.
+  When its edits are done, the agent renders them into `clip.edited.mp4` next to `clip.mp4` (a WebM stays WebM). Each
+  render replaces the previous one, and you compare the rendered file with the source in the pane, at the same moment
+  of the video.
 - **Marks stay as notes** on the timeline. The agent ticks each one off when it has dealt with it.
 - **Photos too:** a JPEG, PNG or WebP opens the same way. You draw a box on it and send a note; the agent sets its
   exposure, crops, straightens and turns it, and renders `photo.edited.jpg` in the photo's own format. A phone photo

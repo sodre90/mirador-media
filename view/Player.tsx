@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type PointerEvent, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent, type RefObject } from "react";
 import type { Box } from "../shared/document.ts";
-import { corners, cssMatrix, type FrameEdits, type Point, type Size, type Sizing } from "../shared/geometry.ts";
+import { corners, cssMatrix, framed, type FrameEdits, type Point, type Size, type Sizing } from "../shared/geometry.ts";
 import { boxBetween, frameOnStage, sourcePoint } from "./geometry.ts";
 
 export interface ShownBox {
@@ -10,14 +10,21 @@ export interface ShownBox {
   drawing?: boolean;
 }
 
-/** An element's size, kept as it resizes. */
-function useSize(element: RefObject<HTMLElement | null>) {
+/**
+ * An element's size, kept as it resizes, and measured again before the browser paints when its shape changes: the stage
+ * takes the frame's shape as the edits change, and a frame placed on its old size would show, and take a drag, in the
+ * wrong place.
+ */
+function useSize(element: RefObject<HTMLElement | null>, shape: string) {
   const [size, setSize] = useState<Size | null>(null);
-  useEffect(() => {
+  const measure = () => {
     const observed = element.current;
-    if (!observed) return;
-    const resizes = new ResizeObserver(() => setSize({ width: observed.clientWidth, height: observed.clientHeight }));
-    resizes.observe(observed);
+    if (observed) setSize((known) => (known?.width === observed.clientWidth && known.height === observed.clientHeight ? known : { width: observed.clientWidth, height: observed.clientHeight }));
+  };
+  useLayoutEffect(measure, [shape]);
+  useEffect(() => {
+    const resizes = new ResizeObserver(measure);
+    resizes.observe(element.current!);
     return () => resizes.disconnect();
   }, [element]);
   return size;
@@ -44,6 +51,12 @@ function usePictureSize(picture: Picture) {
     return () => events.forEach((event) => element.removeEventListener(event, measure));
   }, [picture.kind, picture.ref]);
   return size;
+}
+
+/** The stage takes the shape of the frame the edits make, as wide as fits under its height limit, so no bars frame it. */
+function stageShape(picture: Size | null, frameEdits: FrameEdits, sizing: Sizing) {
+  const { width, height } = picture ? framed(picture, frameEdits, sizing).size : { width: 16, height: 9 };
+  return { aspectRatio: `${width} / ${height}`, maxWidth: `calc(var(--stage-height) * ${width / height})` };
 }
 
 const pointsOf = (points: Point[]) => points.map(({ x, y }) => `${x},${y}`).join(" ");
@@ -73,8 +86,9 @@ export function Player({
   onBox: (box: Box | null) => void;
 }) {
   const stage = useRef<HTMLDivElement>(null);
-  const stageSize = useSize(stage);
   const picture = usePictureSize(element);
+  const shape = stageShape(picture, frameEdits, sizing);
+  const stageSize = useSize(stage, shape.aspectRatio);
   const frame = stageSize && picture ? frameOnStage(stageSize, picture, frameEdits, sizing) : null;
   const [corner, setCorner] = useState<{ from: Point; to: Point } | null>(null);
   const overlay = useRef<HTMLDivElement>(null);
@@ -101,7 +115,7 @@ export function Player({
   const placed = frame ? { left: frame.left, top: frame.top, width: frame.width, height: frame.height } : { inset: 0 };
   const placedPicture = frame && picture ? { width: picture.width, height: picture.height, transform: cssMatrix(frame.toScreen), filter } : { visibility: "hidden" as const };
   return (
-    <div ref={stage} className="stage">
+    <div ref={stage} className="stage" style={shape}>
       <div className="frame" style={placed}>
         {element.kind === "video" ? (
           <video ref={element.ref} src={src ?? undefined} crossOrigin="anonymous" preload="auto" playsInline style={placedPicture} />
@@ -126,18 +140,19 @@ export function Player({
             })}
           </svg>
         )}
-        {frame && (
-          <div
-            ref={overlay}
-            className={`overlay${canDraw ? " drawable" : ""}`}
-            aria-label="The frame: drag across it to draw a box"
-            onPointerDown={start}
-            onPointerMove={move}
-            onPointerUp={end}
-            onPointerCancel={() => setCorner(null)}
-          />
-        )}
       </div>
+      {frame && (
+        <div
+          ref={overlay}
+          className={`overlay${canDraw ? " drawable" : ""}`}
+          style={placed}
+          aria-label="The frame: drag across it to draw a box"
+          onPointerDown={start}
+          onPointerMove={move}
+          onPointerUp={end}
+          onPointerCancel={() => setCorner(null)}
+        />
+      )}
     </div>
   );
 }

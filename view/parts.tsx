@@ -190,7 +190,7 @@ export function MarkList({ document, onSeek }: { document: MediaDocument; onSeek
   );
 }
 
-/** The note the user writes about what they marked, in one line after what is marked, and its sending. */
+/** The note the user writes about what they marked, over what is marked and its sending, like a message to the agent. */
 export function Composer({ marked, send }: { marked: ReactNode; send: (note: string) => Promise<string> }) {
   const [note, setNote] = useState("");
   const [status, setStatus] = useState<{ sending: boolean; text: string } | null>(null);
@@ -207,23 +207,24 @@ export function Composer({ marked, send }: { marked: ReactNode; send: (note: str
   const canSend = note.trim() !== "" && !status?.sending;
   return (
     <div className="composer">
-      <div className="marked">{marked}</div>
-      <input
-        type="text"
+      <textarea
         value={note}
-        placeholder="What's wrong here?"
+        rows={Math.min(6, Math.max(2, note.split("\n").length))}
+        placeholder="What's wrong here? (Enter to send, Shift+Enter for a new line)"
         aria-label="What's wrong here"
         onChange={(event) => setNote(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === "Enter" && canSend) {
-            event.preventDefault();
-            void submit();
-          }
+          if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+          event.preventDefault();
+          if (canSend) void submit();
         }}
       />
-      <button type="button" className="primary" aria-label="Send to the agent" disabled={!canSend} onClick={() => void submit()}>
-        Send ↵
-      </button>
+      <div className="composer-row">
+        <div className="marked">{marked}</div>
+        <button type="button" className="primary" aria-label="Send to the agent" disabled={!canSend} onClick={() => void submit()}>
+          Send ↵
+        </button>
+      </div>
       {status && (
         <p className="compose-status" role="status">
           {status.text}

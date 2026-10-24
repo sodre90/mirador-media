@@ -411,8 +411,7 @@ button.icon.play:hover {
 
 .composer {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  flex-direction: column;
   gap: 6px;
   padding: 6px;
   background: var(--panel);
@@ -422,10 +421,15 @@ button.icon.play:hover {
 .composer:focus-within {
   border-color: color-mix(in srgb, var(--accent) 60%, var(--line));
 }
+.composer-row,
 .composer .marked {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+}
+.composer-row .primary {
+  margin-left: auto;
 }
 .composer .when {
   padding: 3px 8px;
@@ -444,21 +448,20 @@ button.icon.play:hover {
   border-color: var(--mark);
   color: var(--text);
 }
-.composer input {
-  flex: 1;
-  min-width: 160px;
+.composer textarea {
+  resize: none;
   font: inherit;
+  line-height: 1.5;
   color: inherit;
   background: none;
   border: none;
   outline: none;
-  padding: 4px 6px;
+  padding: 2px 4px;
 }
-.composer input::placeholder {
+.composer textarea::placeholder {
   color: var(--muted);
 }
 .compose-status {
-  flex-basis: 100%;
   margin: 0 4px;
   color: var(--muted);
 }
@@ -496,6 +499,7 @@ button.icon.play:hover {
 }
 .marks .note {
   flex: 1;
+  white-space: pre-wrap;
 }
 .marks .check {
   appearance: none;

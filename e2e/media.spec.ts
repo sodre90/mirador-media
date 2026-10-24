@@ -316,16 +316,26 @@ test("mark a box on a photo and send 'sky too bright'; the agent brightens, crop
   await test.step("the user draws a box on the photo and sends what's wrong there, with the photo", async () => {
     await drawBox(page, [0.25, 0.25], [0.75, 0.75]);
     await expect(view(page).getByRole("button", { name: "Clear the box" })).toHaveText("▢ 160×120 ×");
-    await view(page).getByLabel("What's wrong here").fill("sky too bright");
-    await view(page).getByRole("button", { name: "Send to the agent" }).click();
+    const note = view(page).getByLabel("What's wrong here");
+    await expect(note).toHaveAttribute("rows", "2");
+    await note.fill("sky too bright");
+    await note.press("Shift+Enter");
+    await note.pressSequentially("on the left");
+    await note.press("Shift+Enter");
+    await note.pressSequentially("keep the clouds");
+    await expect(note).toHaveValue("sky too bright\non the left\nkeep the clouds");
+    await expect(note).toHaveAttribute("rows", "3");
+    await note.press("Enter");
     await expect(view(page).locator(".composer [role=status]")).toHaveText("Sent to the agent as m1.");
     await expect(page.locator(".chat-header:visible .badge")).toHaveText("idle", { timeout: 60_000 });
     await expect.poll(prompts).toContain(
-      "About photo.media.json, open in Media (app_state reads it, apply changes it):\n\nIn photo.jpg, in the box x 80, y 60, 160×120 px of the 320×240 photo: sky too bright\n\n(Mark m1. The picture is the photo with the box drawn on it in red, as shot.)",
+      "About photo.media.json, open in Media (app_state reads it, apply changes it):\n\nIn photo.jpg, in the box x 80, y 60, 160×120 px of the 320×240 photo: sky too bright\non the left\nkeep the clouds\n\n(Mark m1. The picture is the photo with the box drawn on it in red, as shot.)",
     );
     const sent = page.locator(".timeline:visible .message.user").last();
     await expect.poll(() => sent.locator(".message-images img").evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(320);
-    expect(await mirador.callCanvasTool(host, conversation, "app_state", {})).toContain("- m1 box x 80, y 60, 160×120 px: sky too bright");
+    expect(await mirador.callCanvasTool(host, conversation, "app_state", {})).toContain("- m1 box x 80, y 60, 160×120 px: sky too bright\non the left\nkeep the clouds");
+    await expect(note).toHaveValue("");
+    expect(await view(page).locator(".marks .note").evaluate((element: HTMLElement) => element.innerText)).toBe("sky too bright\non the left\nkeep the clouds");
     await expect(view(page).locator(".box")).toHaveCount(1);
   });
 
@@ -367,7 +377,7 @@ test("mark a box on a photo and send 'sky too bright'; the agent brightens, crop
     await expect(view(page).locator(".marks li.done")).toHaveCount(1);
     const state = await mirador.callCanvasTool(host, conversation, "app_state", {});
     expect(state).toContain("Its frame is 161×121.");
-    expect(state).toContain("- m1 box x 80, y 60, 160×120 px: sky too bright (done)");
+    expect(state).toContain("- m1 box x 80, y 60, 160×120 px: sky too bright\non the left\nkeep the clouds (done)");
     expect(state).toContain("user: Turned back to as shot.");
   });
 });

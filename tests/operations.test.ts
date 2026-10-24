@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { checkedDocument, newDocument, renderedName, type MediaDocument } from "../shared/document.ts";
+import { checkedDocument, hasEdits, newDocument, NO_EDITS, renderedName, sameEdits, type MediaDocument } from "../shared/document.ts";
 import { applyOperation } from "../shared/operations.ts";
 
 const probe = { width: 1920, height: 1080, duration: 83.4, fps: 29.97, audio: true };
@@ -49,6 +49,21 @@ describe("applyOperation", () => {
     expect(refusal(newDocument(), { op: "trim", start: 1, end: 2 })).toContain("There is no video yet");
   });
 
+  test("cuts parts out, joining cuts that touch, puts a part back, and refuses to leave nothing", () => {
+    const { document, summaries } = applied(withVideo(), { op: "cut", start: 10, end: 12 }, { op: "cut", start: 30, end: 31 }, { op: "cut", start: 11.5, end: 14 }, { op: "uncut", start: 12, end: 13 });
+    expect(document.edits.cuts).toEqual([
+      { start: 10, end: 12 },
+      { start: 13, end: 14 },
+      { start: 30, end: 31 },
+    ]);
+    expect(summaries).toEqual(["Cut 0:10.00–0:12.00 out.", "Cut 0:30.00–0:31.00 out.", "Cut 0:11.50–0:14.00 out.", "Put 0:12.00–0:13.00 back."]);
+    expect(refusal(document, { op: "uncut", start: 20, end: 25 })).toBe("Nothing is cut from 0:20.00–0:25.00; the cuts are 0:10.00–0:12.00, 0:13.00–0:14.00, 0:30.00–0:31.00.");
+    expect(refusal(withVideo(), { op: "cut", start: 3, end: 2 })).toBe("The cut's end must come after its start.");
+    expect(refusal(withVideo(), { op: "cut", start: 0, end: 83.4 })).toBe("That would leave nothing of the video.");
+    const trimmed = applied(withVideo(), { op: "cut", start: 5, end: 10 }).document;
+    expect(refusal(trimmed, { op: "trim", start: 6, end: 9 })).toBe("That would leave nothing of the video.");
+  });
+
   test("sets the exposure in stops, rounded to a hundredth, from -3 to 3", () => {
     const { document, summaries } = applied(withVideo(), { op: "exposure", ev: 0.4999 }, { op: "exposure", ev: -1.5 }, { op: "exposure", ev: 0 });
     expect(summaries).toEqual(["Set the exposure to +0.50 EV.", "Set the exposure to -1.50 EV.", "Set the exposure back to as shot."]);
@@ -90,7 +105,8 @@ describe("applyOperation", () => {
       { op: "exposure", ev: 1 },
       { op: "mark", at: 2, note: "x" },
       { op: "mark-done", mark: "m1" },
-      { op: "rendered", file: "clip.edited.mp4", edits: { trim: { start: 1, end: 9 }, exposure: 1 } },
+      { op: "cut", start: 3, end: 4 },
+      { op: "rendered", file: "clip.edited.mp4", edits: { trim: { start: 1, end: 9 }, cuts: [{ start: 3, end: 4 }], exposure: 1 } },
       { op: "source", file: "b.mp4" },
     );
     expect(applied(document, ...inverses).document).toEqual(start);
@@ -110,6 +126,24 @@ describe("checkedDocument", () => {
     expect(() => checkedDocument({ version: 2 })).toThrow("not a media document: it needs version 1");
     expect(() => checkedDocument({ ...document, edits: { trim: null, exposure: 9 } })).toThrow("edits: exposure must be a number from -3 to 3");
     expect(() => checkedDocument({ ...document, marks: [...document.marks, ...document.marks] })).toThrow("two marks have the same id");
+    expect(() => checkedDocument({ ...document, edits: { ...document.edits, cuts: [{ start: 5, end: 6 }, { start: 1, end: 2 }] } })).toThrow("edits: cuts must be in order, none overlapping");
+  });
+
+  test("reads a document from before cuts existed as one with none", () => {
+    const older = { ...withVideo(), edits: { trim: { start: 1, end: 9 }, exposure: 1 }, rendered: { file: "clip.edited.mp4", edits: { trim: null, exposure: 1 }, at: 1 } };
+    const read = checkedDocument(JSON.parse(JSON.stringify(older)));
+    expect(read.edits).toEqual({ trim: { start: 1, end: 9 }, cuts: [], exposure: 1 });
+    expect(read.rendered!.edits).toEqual({ trim: null, cuts: [], exposure: 1 });
+  });
+});
+
+describe("sameEdits", () => {
+  test("compares every field, whatever order its keys are in", () => {
+    const edits = { trim: { start: 1, end: 9 }, cuts: [{ start: 3, end: 4 }], exposure: 1 };
+    expect(sameEdits(edits, { exposure: 1, cuts: [{ end: 4, start: 3 }], trim: { end: 9, start: 1 } })).toBe(true);
+    expect(sameEdits(edits, { ...edits, cuts: [] })).toBe(false);
+    expect(hasEdits(NO_EDITS)).toBe(false);
+    expect(hasEdits({ ...NO_EDITS, cuts: [{ start: 1, end: 2 }] })).toBe(true);
   });
 });
 

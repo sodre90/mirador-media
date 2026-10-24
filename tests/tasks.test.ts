@@ -48,6 +48,18 @@ const firstPixel = async (file: string) => {
 
 const probed = async (file: string) => probeFrom(await runProgram(binaries.ffprobe, [...PROBE_ARGUMENTS, file], never));
 
+/** A clip of the test pattern with a tone at CD audio's 44.1 kHz, which WebM's Opus can't take as it is. */
+async function clipWithSound(folder: string, name: string, seconds: number) {
+  const sources = ["-f", "lavfi", "-i", `testsrc2=s=160x120:r=10:d=${seconds}`, "-f", "lavfi", "-i", `sine=f=440:r=44100:d=${seconds}`];
+  await runProgram(binaries.ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", ...sources, "-c:v", "libx264", "-c:a", "aac", "-shortest", join(folder, name)], never);
+}
+
+const streamSeconds = async (file: string) => {
+  const report = await runProgram(binaries.ffprobe, ["-v", "error", "-show_entries", "stream=codec_type,sample_rate:format=duration", "-of", "json", file], never);
+  const { streams, format } = JSON.parse(report) as { streams: { codec_type: string; sample_rate?: string }[]; format: { duration: string } };
+  return { duration: Number(format.duration), kinds: streams.map(({ codec_type, sample_rate }) => (sample_rate ? `${codec_type} ${sample_rate}` : codec_type)) };
+};
+
 describe("the probe task", () => {
   test("reads the video's size, length and frame rate into the document", async () => {
     const folder = mkdtempSync(join(tmpdir(), "media-probe-"));
@@ -84,6 +96,20 @@ describe("the render task", () => {
     expect(rendered.source!.probe).not.toBeNull();
     expect(progress[0]).toEqual([null, "reading clip.webm"]);
     expect(progress.at(-1)![0]).toBeGreaterThan(0.5);
+  }, 60_000);
+
+  test("cuts parts out of a video with sound, keeping the sound, into a WebM and an MP4 alike", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "media-render-"));
+    await clipWithSound(folder, "clip.mp4", 10);
+    await runProgram(binaries.ffmpeg, ["-hide_banner", "-loglevel", "error", "-i", join(folder, "clip.mp4"), "-c:v", "libvpx", "-c:a", "libvorbis", "-ar", "44100", join(folder, "talk.webm")], never);
+    for (const [name, rendered, sound] of [["clip.mp4", "clip.edited.mp4", "audio 44100"], ["talk.webm", "talk.edited.webm", "audio 48000"]] as const) {
+      const document = [{ op: "source", file: name }, { op: "trim", start: 1, end: 9 }, { op: "cut", start: 3, end: 5 }].reduce((edited, operation) => applyOperation(edited, operation).document, newDocument());
+      const { summary } = await runTask(render, document, folder);
+      expect(summary).toContain(`Rendered ${rendered} (edits: trim 0:01.00–0:09.00; cut 0:03.00–0:05.00)`);
+      const { duration, kinds } = await streamSeconds(join(folder, rendered));
+      expect(duration).toBeCloseTo(6, 1);
+      expect(kinds).toEqual(["video", sound]);
+    }
   }, 60_000);
 
   test("writes an MP4 for any other source, and replaces the one rendered before", async () => {

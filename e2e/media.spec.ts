@@ -67,7 +67,24 @@ async function drawBox(page: Page, from: [number, number], to: [number, number])
   await page.mouse.up();
 }
 
-test("mark 0:39 with a box and send 'too dark here'; the agent trims and brightens it, the pane previews that, and the render can be compared", async ({ page }) => {
+type RecordingWindow = Window & { shownFrames?: number[] };
+
+/** Records the time of every frame the video shows from now on, for shownFrames to read. */
+const recordShownFrames = (page: Page) =>
+  view(page)
+    .locator("video")
+    .evaluate((element: HTMLVideoElement) => {
+      const shown: number[] = ((window as RecordingWindow).shownFrames = []);
+      const each = (_now: number, frame: { mediaTime: number }) => {
+        shown.push(frame.mediaTime);
+        element.requestVideoFrameCallback(each);
+      };
+      element.requestVideoFrameCallback(each);
+    });
+
+const shownFrames = (page: Page) => view(page).locator("video").evaluate(() => (window as RecordingWindow).shownFrames!);
+
+test("mark 0:39 with a box and send 'too dark here'; the agent trims, cuts and brightens it, the pane previews that, and the render can be compared", async ({ page }) => {
   await mirador.signIn(page, host);
   await mirador.addWorkspace(page, host.projectDir);
   const profiles = await mirador.createProfile(page, profileName, "", "", "opencode");
@@ -103,31 +120,43 @@ test("mark 0:39 with a box and send 'too dark here'; the agent trims and brighte
     await expect(view(page).locator(".box")).toHaveCount(1);
   });
 
-  await test.step("the agent trims and brightens it, and the pane previews both at once", async () => {
+  await test.step("the agent trims, cuts and brightens it, and the pane previews all of it at once", async () => {
     expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "trim", start: 30, end: 42 } })).toBe("Trimmed to 0:30.00–0:42.00.");
+    await expect(view(page).locator(".timeline .kept")).toHaveCount(1);
+    expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "cut", start: 33, end: 35 } })).toBe("Cut 0:33.00–0:35.00 out.");
     expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "exposure", ev: 1 } })).toBe("Set the exposure to +1.00 EV.");
     expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "mark-done", mark: "m1" } })).toBe("Marked m1 done.");
-    await expect(view(page).locator(".edits")).toHaveText("Edits: trim 0:30.00–0:42.00; exposure +1.00 EV");
+    await expect(view(page).locator(".edits")).toHaveText("Edits: trim 0:30.00–0:42.00; cut 0:33.00–0:35.00; exposure +1.00 EV");
+    expect(await mirador.callCanvasTool(host, conversation, "app_state", {})).toContain("The result is 0:10.00 long, in 2 pieces.");
     await expect(view(page).locator("video")).toHaveCSS("filter", "brightness(2)");
-    await expect(view(page).locator(".timeline .kept")).toHaveCount(1);
+    await expect(view(page).locator(".timeline .kept")).toHaveCount(2);
     await expect(view(page).getByLabel("m1 done")).toBeChecked();
+
+    await view(page).locator("video").evaluate((element: HTMLVideoElement) => void (element.currentTime = 32.5));
+    await expect(view(page).getByLabel("Current time")).toHaveText("0:32.50 / 0:45.00");
+    await recordShownFrames(page);
     await view(page).getByRole("button", { name: "Play" }).click();
-    await expect(view(page).getByLabel("Current time")).toHaveText("0:42.00 / 0:45.00", { timeout: 10_000 });
+    await expect(view(page).getByLabel("Current time")).toHaveText("0:42.00 / 0:45.00", { timeout: 15_000 });
     await expect(view(page).getByRole("button", { name: "Play" })).toBeVisible();
+    const times = await shownFrames(page);
+    expect(times.filter((time) => time > 33.15 && time < 34.95)).toEqual([]);
+    expect(times.some((time) => time > 32.5 && time < 33)).toBe(true);
+    expect(times.some((time) => time >= 35 && time < 36)).toBe(true);
   });
 
   await test.step("the agent renders, and the user compares the rendered file with the source", async () => {
     expect(await mirador.callCanvasTool(host, conversation, "app_run", { task: "render" })).toMatch(
-      /^Rendered clip\.edited\.webm \(edits: trim 0:30\.00–0:42\.00; exposure \+1\.00 EV\) in \d+ s; the user can compare it with clip\.webm in the app\.$/,
+      /^Rendered clip\.edited\.webm \(edits: trim 0:30\.00–0:42\.00; cut 0:33\.00–0:35\.00; exposure \+1\.00 EV\) in \d+ s; the user can compare it with clip\.webm in the app\.$/,
     );
     const rendered = join(host.projectDir, "clip.edited.webm");
     expect(existsSync(rendered)).toBe(true);
-    expect(durationOf(rendered)).toBeCloseTo(12, 0);
+    expect(durationOf(rendered)).toBeCloseTo(10, 0);
+    await view(page).locator("video").evaluate((element: HTMLVideoElement) => void (element.currentTime = 36));
     await view(page).getByRole("button", { name: "Rendered" }).click();
-    await expect(view(page).getByLabel("Current time")).toHaveText(/ 0:12\.\d\d$/);
+    await expect(view(page).getByLabel("Current time")).toHaveText(/^0:04\.00 \/ 0:10\.\d\d$/);
     await expect(view(page).locator("video")).toHaveCSS("filter", "none");
     await view(page).getByRole("button", { name: "Source" }).click();
-    await expect(view(page).getByLabel("Current time")).toHaveText(/ 0:45\.00$/);
-    await expect(view(page).locator(".edits")).toHaveText("As shot. Edits: trim 0:30.00–0:42.00; exposure +1.00 EV (Preview shows them)");
+    await expect(view(page).getByLabel("Current time")).toHaveText("0:36.00 / 0:45.00");
+    await expect(view(page).locator(".edits")).toHaveText("As shot. Edits: trim 0:30.00–0:42.00; cut 0:33.00–0:35.00; exposure +1.00 EV (Preview shows them)");
   });
 });

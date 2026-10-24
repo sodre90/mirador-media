@@ -27,9 +27,17 @@ export interface Probe {
   audio: boolean;
 }
 
+/** A part of the source, in seconds. */
+export interface Span {
+  start: number;
+  end: number;
+}
+
 export interface Edits {
-  /** Seconds of the source to keep. */
-  trim: { start: number; end: number } | null;
+  /** The part of the source to keep. */
+  trim: Span | null;
+  /** Parts taken out of what the trim keeps, in order, none overlapping. */
+  cuts: Span[];
   /** Stops brighter or darker, from -3 to 3; 0 is as shot. */
   exposure: number;
 }
@@ -63,7 +71,7 @@ export interface Rendered {
 
 export const MAX_EXPOSURE = 3;
 
-export const NO_EDITS: Edits = { trim: null, exposure: 0 };
+export const NO_EDITS: Edits = { trim: null, cuts: [], exposure: 0 };
 
 export const newDocument = (): MediaDocument => ({ version: 1, source: null, edits: NO_EDITS, marks: [], nextMark: 1, rendered: null });
 
@@ -85,13 +93,20 @@ function checkedBox(value: unknown, where: string): Box | null {
   return { x, y, width, height };
 }
 
+function checkedSpan(value: unknown, where: string): Span {
+  check(isRecord(value) && isNonNegative(value.start) && isNonNegative(value.end) && value.end > value.start, `${where} needs a start of 0 or more and an end after it`);
+  return { start: value.start, end: value.end };
+}
+
+/** Edits from before a field existed read as that field left as shot. */
 function checkedEdits(value: unknown, where: string): Edits {
   check(isRecord(value), `${where} needs trim and exposure`);
-  const { trim, exposure } = value;
+  const { trim = null, cuts = [], exposure } = value;
   check(isNumber(exposure) && Math.abs(exposure) <= MAX_EXPOSURE, `${where}: exposure must be a number from -${MAX_EXPOSURE} to ${MAX_EXPOSURE}`);
-  if (trim === null) return { trim: null, exposure };
-  check(isRecord(trim) && isNonNegative(trim.start) && isNonNegative(trim.end) && trim.end > trim.start, `${where}: a trim needs a start of 0 or more and an end after it`);
-  return { trim: { start: trim.start, end: trim.end }, exposure };
+  check(Array.isArray(cuts), `${where}: cuts must be a list`);
+  const checkedCuts = cuts.map((cut, index) => checkedSpan(cut, `${where}.cuts[${index}]`));
+  check(checkedCuts.every((cut, index) => index === 0 || cut.start > checkedCuts[index - 1]!.end), `${where}: cuts must be in order, none overlapping`);
+  return { trim: trim === null ? null : checkedSpan(trim, `${where}.trim`), cuts: checkedCuts, exposure };
 }
 
 function checkedSource(value: unknown): Source | null {
@@ -134,7 +149,8 @@ export function checkedDocument(value: unknown): MediaDocument {
   };
 }
 
-export const sameEdits = (a: Edits, b: Edits) => a.exposure === b.exposure && a.trim?.start === b.trim?.start && a.trim?.end === b.trim?.end;
+/** Compares every field, so one added later can't be left out of whether a render is current. */
+export const sameEdits = (a: Edits, b: Edits) => JSON.stringify(checkedEdits(a, "edits")) === JSON.stringify(checkedEdits(b, "edits"));
 
 export const hasEdits = (edits: Edits) => !sameEdits(edits, NO_EDITS);
 

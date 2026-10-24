@@ -1,10 +1,14 @@
 import { checkedDocument, hasEdits, MAX_EXPOSURE, NO_EDITS, type Box, type Edits, type MediaDocument, type Probe } from "./document.ts";
+import { overlaps, withoutSpan, withSpan } from "./spans.ts";
+import { keptPieces } from "./timeline.ts";
 import { formatExposure, formatTime } from "./time.ts";
 
 export type Operation =
   | { op: "source"; file: string }
   | { op: "trim"; start: number; end: number }
   | { op: "untrim" }
+  | { op: "cut"; start: number; end: number }
+  | { op: "uncut"; start: number; end: number }
   | { op: "exposure"; ev: number }
   | { op: "mark"; at: number; end?: number | null; box?: Box | null; note: string }
   | { op: "mark-done"; mark: string; done?: boolean }
@@ -52,6 +56,23 @@ function secondsIn(document: MediaDocument, value: unknown, name: string) {
   return roundTo(duration === undefined ? value : Math.min(value, duration), 3);
 }
 
+/** A part of the source from start to end, each refused as secondsIn refuses it. */
+function spanIn(document: MediaDocument, operation: Record<string, unknown>, whose: string) {
+  const start = secondsIn(document, operation.start, "start");
+  const end = secondsIn(document, operation.end, "end");
+  if (end <= start) refuse(`The ${whose} end must come after its start.`);
+  return { start, end };
+}
+
+/** Refuses edits that would leave nothing of the video, once its length is known. */
+function keepingSome(document: MediaDocument, edits: Edits) {
+  const duration = document.source?.probe?.duration;
+  if (duration !== undefined && keptPieces(edits, duration).length === 0) refuse("That would leave nothing of the video.");
+  return edits;
+}
+
+export const describeSpan = ({ start, end }: { start: number; end: number }) => `${formatTime(start)}–${formatTime(end)}`;
+
 function boxIn(document: MediaDocument, value: unknown): Box | null {
   if (value === undefined || value === null) return null;
   if (!isRecord(value) || ![value.x, value.y, value.width, value.height].every(isNumber)) refuse("A box needs x, y, width and height, in the source's pixels.");
@@ -91,14 +112,22 @@ export function applyOperation(document: MediaDocument, operation: unknown): App
     }
     case "trim": {
       sourceOf(document);
-      const start = secondsIn(document, operation.start, "start");
-      const end = secondsIn(document, operation.end, "end");
-      if (end <= start) refuse("The trim's end must come after its start.");
-      return changed(document, { edits: { ...document.edits, trim: { start, end } } }, `Trimmed to ${formatTime(start)}–${formatTime(end)}.`, ["edits.trim"]);
+      const trim = spanIn(document, operation, "trim's");
+      return changed(document, { edits: keepingSome(document, { ...document.edits, trim }) }, `Trimmed to ${describeSpan(trim)}.`, ["edits.trim"]);
     }
     case "untrim":
       if (!document.edits.trim) refuse("There is no trim to take off.");
       return changed(document, { edits: { ...document.edits, trim: null } }, "Took the trim off.", ["edits.trim"]);
+    case "cut": {
+      sourceOf(document);
+      const cut = spanIn(document, operation, "cut's");
+      return changed(document, { edits: keepingSome(document, { ...document.edits, cuts: withSpan(document.edits.cuts, cut) }) }, `Cut ${describeSpan(cut)} out.`, ["edits.cuts"]);
+    }
+    case "uncut": {
+      const span = spanIn(document, operation, "part's");
+      if (!document.edits.cuts.some((cut) => overlaps(cut, span))) refuse(`Nothing is cut from ${describeSpan(span)}; the cuts are ${document.edits.cuts.map(describeSpan).join(", ") || "none"}.`);
+      return changed(document, { edits: { ...document.edits, cuts: withoutSpan(document.edits.cuts, span) } }, `Put ${describeSpan(span)} back.`, ["edits.cuts"]);
+    }
     case "exposure": {
       sourceOf(document);
       if (!isNumber(operation.ev) || Math.abs(operation.ev) > MAX_EXPOSURE) refuse(`ev must be stops from -${MAX_EXPOSURE} to ${MAX_EXPOSURE}; 0 is as shot.`);

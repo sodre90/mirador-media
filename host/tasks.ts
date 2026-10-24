@@ -4,7 +4,8 @@ import type { AppTask, AppTaskContext } from "../mirador/api.ts";
 import { renderedName, type MediaDocument } from "../shared/document.ts";
 import { describeEdits } from "../shared/describe.ts";
 import { formatTime } from "../shared/time.ts";
-import { binaries, keptSeconds, PROBE_ARGUMENTS, probeFrom, progressSeconds, renderArguments, runProgram } from "./ffmpeg.ts";
+import { keptPieces, resultLength } from "../shared/timeline.ts";
+import { binaries, PROBE_ARGUMENTS, probeFrom, progressSeconds, renderArguments, runProgram } from "./ffmpeg.ts";
 
 function sourceFile({ document, file }: AppTaskContext<MediaDocument>) {
   if (!document.source) throw new Error('there is no video yet; name one with { op: "source", file: "clip.mp4" }');
@@ -42,12 +43,12 @@ export const render: AppTask<MediaDocument> = {
     const output = context.file(outputName);
     const partial = unfinished(output);
     const { edits } = document;
-    const { duration } = document.source!.probe ?? (await probed(context));
-    const total = keptSeconds(edits, duration);
+    const read = document.source!.probe ?? (await probed(context));
+    const total = resultLength(keptPieces(edits, read.duration));
     progress(0, `rendering ${outputName}`);
     const started = Date.now();
     try {
-      await runProgram(binaries.ffmpeg, renderArguments(path, partial, edits), signal, (line) => {
+      await runProgram(binaries.ffmpeg, renderArguments(path, partial, edits, read), signal, (line) => {
         const seconds = progressSeconds(line);
         if (seconds !== null && total > 0) progress(Math.min(1, seconds / total), `${formatTime(seconds)} of ${formatTime(total)}`);
       });

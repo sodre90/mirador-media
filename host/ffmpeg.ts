@@ -1,6 +1,7 @@
 import ffprobePath from "@derhuerst/ffprobe-static";
 import ffmpegPath from "ffmpeg-static";
 import type { Edits, Probe } from "../shared/document.ts";
+import { keptPieces } from "../shared/timeline.ts";
 
 export const binaries = { ffmpeg: ffmpegPath, ffprobe: ffprobePath };
 
@@ -12,20 +13,34 @@ export function exposureFilter(ev: number) {
   return `lutrgb=r=val*${factor}:g=val*${factor}:b=val*${factor}`;
 }
 
-export const keptSeconds = (edits: Edits, duration: number) => (edits.trim ? edits.trim.end - edits.trim.start : duration);
+const seconds = (value: number) => String(Math.round(value * 1000) / 1000);
 
 /**
- * ffmpeg's arguments to render the edits of `input` into `output`. The seek goes before the input and the length after
- * it, which cuts on the right frames when re-encoding. An MP4 gets its index first, so it plays while it streams.
+ * ffmpeg's arguments to render the edits of `input` into `output`. It seeks to the first kept piece and reads to the end
+ * of the last, takes each piece with its sound, and joins them. An MP4 gets its index first, so it plays while it streams.
  */
-export function renderArguments(input: string, output: string, edits: Edits) {
-  const seek = edits.trim ? ["-ss", String(edits.trim.start)] : [];
-  const length = edits.trim ? ["-t", String(edits.trim.end - edits.trim.start)] : [];
-  const filters = [...(edits.exposure !== 0 ? [exposureFilter(edits.exposure)] : []), "format=yuv420p"];
-  const codecs = /\.webm$/i.test(output)
-    ? ["-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-row-mt", "1", "-crf", "30", "-b:v", "0", "-c:a", "libopus", "-b:a", "128k"]
-    : ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"];
-  return ["-hide_banner", "-nostdin", "-loglevel", "error", "-y", ...seek, "-i", input, ...length, "-vf", filters.join(","), ...codecs, "-progress", "pipe:1", "-nostats", output];
+export function renderArguments(input: string, output: string, edits: Edits, probe: Probe) {
+  const pieces = keptPieces(edits, probe.duration);
+  if (pieces.length === 0) throw new Error("the edits leave nothing of the video");
+  const [from, to] = [pieces[0]!.start, pieces.at(-1)!.end];
+  const inRead = (time: number) => seconds(time - from);
+  const pieceFilters = pieces.flatMap(({ start, end }, index) => [
+    `[0:v]trim=start=${inRead(start)}:end=${inRead(end)},setpts=PTS-STARTPTS[v${index}]`,
+    ...(probe.audio ? [`[0:a]atrim=start=${inRead(start)}:end=${inRead(end)},asetpts=PTS-STARTPTS[a${index}]`] : []),
+  ]);
+  const joined = pieces.map((_, index) => `[v${index}]${probe.audio ? `[a${index}]` : ""}`).join("");
+  const looks = [...(edits.exposure !== 0 ? [exposureFilter(edits.exposure)] : []), "format=yuv420p"].join(",");
+  const graph = [...pieceFilters, `${joined}concat=n=${pieces.length}:v=1:a=${probe.audio ? 1 : 0}[joined]${probe.audio ? "[sound]" : ""}`, `[joined]${looks}[picture]`].join(";");
+  const webm = /\.webm$/i.test(output);
+  const video = webm ? ["-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-row-mt", "1", "-crf", "30", "-b:v", "0"] : ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18"];
+  const sound = probe.audio ? ["-map", "[sound]", ...(webm ? ["-c:a", "libopus", "-b:a", "128k"] : ["-c:a", "aac", "-b:a", "192k"])] : [];
+  return [
+    ...["-hide_banner", "-nostdin", "-loglevel", "error", "-y"],
+    ...["-ss", seconds(from), "-t", seconds(to - from), "-i", input],
+    ...["-filter_complex", graph, "-map", "[picture]", ...video, ...sound],
+    ...(webm ? [] : ["-movflags", "+faststart"]),
+    ...["-progress", "pipe:1", "-nostats", output],
+  ];
 }
 
 export const PROBE_ARGUMENTS = ["-v", "error", "-show_entries", "stream=codec_type,width,height,avg_frame_rate,r_frame_rate:stream_side_data=rotation:format=duration", "-of", "json"];

@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AppDocumentState, AppTaskState } from "../mirador/api.ts";
 import { describeEdits } from "../shared/describe.ts";
 import { hasEdits, NO_EDITS, renderedName, sameEdits, type Box, type MediaDocument, type Probe } from "../shared/document.ts";
 import { markMessage } from "../shared/mark-message.ts";
 import { applyOperation, describeWhen } from "../shared/operations.ts";
 import { formatTime, frameAt, frameMiddle } from "../shared/time.ts";
+import { keptMoment, keptPieces, resultTime, sourceTime } from "../shared/timeline.ts";
 import { capturedFrame, exposurePreview } from "./frame.ts";
 import { usePlayhead } from "./playhead.ts";
 import { Player, type ShownBox } from "./Player.tsx";
@@ -178,26 +179,31 @@ export function App({ state }: { state: AppDocumentState<MediaDocument> }) {
   const renderedUrl = useMediaUrl(mode === "rendered" ? (document.rendered?.file ?? null) : null, document.rendered?.at);
   const shown = mode === "rendered" ? renderedUrl : sourceUrl;
   const previewing = mode === "preview";
-  const trim = previewing ? document.edits.trim : null;
+  const { edits } = document;
+  const editedPieces = useMemo(() => (probe && (edits.trim || edits.cuts.length > 0) ? keptPieces(edits, probe.duration) : null), [edits, probe]);
+  const pieces = previewing ? editedPieces : null;
 
-  const holdInsideTrim = useCallback(
+  const playOnlyKeptPieces = useCallback(
     (time: number) => {
       const element = video.current;
-      if (!element || !trim || element.paused || time < trim.end) return;
-      element.pause();
-      element.currentTime = trim.end;
+      if (!element || !pieces || element.paused) return;
+      const kept = keptMoment(pieces, time);
+      if (kept === time) return;
+      if (kept >= pieces.at(-1)!.end) element.pause();
+      element.currentTime = kept;
     },
-    [trim],
+    [pieces],
   );
-  const playhead = usePlayhead(video, shown && "url" in shown ? shown.url : null, holdInsideTrim);
+  const playhead = usePlayhead(video, shown && "url" in shown ? shown.url : null, playOnlyKeptPieces);
   const time = playhead.time;
 
   const hasVideo = document.source !== null;
-  const renderedFrom = document.rendered?.edits.trim?.start ?? 0;
+  const renderedPieces = useMemo(() => (document.rendered && probe ? keptPieces(document.rendered.edits, probe.duration) : null), [document.rendered, probe]);
   const pendingSeek = useRef<number | null>(null);
   const show = (next: Mode) => {
     const crossing = (mode === "rendered") !== (next === "rendered");
-    if (crossing && video.current) pendingSeek.current = Math.max(0, video.current.currentTime + (next === "rendered" ? -renderedFrom : renderedFrom));
+    const at = video.current?.currentTime;
+    if (crossing && at !== undefined && renderedPieces) pendingSeek.current = next === "rendered" ? resultTime(renderedPieces, at) : sourceTime(renderedPieces, at);
     setMode(next);
   };
   useEffect(() => {
@@ -211,21 +217,28 @@ export function App({ state }: { state: AppDocumentState<MediaDocument> }) {
     return () => element.removeEventListener("loadedmetadata", seekPending);
   }, [hasVideo]);
 
-  const seek = (seconds: number) => {
+  const seek = (seconds: number, direction: 1 | -1 = 1) => {
     const element = video.current;
     if (!element) return;
-    const [from, to] = trim ? [trim.start, trim.end] : [0, playhead.duration || Infinity];
-    element.currentTime = Math.min(to, Math.max(from, seconds));
+    const within = Math.min(playhead.duration || Infinity, Math.max(0, seconds));
+    element.currentTime = pieces ? keptMoment(pieces, within, direction) : within;
   };
   const step = (frames: number) => {
     video.current?.pause();
-    seek(frameMiddle(frameAt(time, fps) + frames, fps));
+    const direction = frames < 0 ? -1 : 1;
+    const target = frameMiddle(frameAt(time, fps) + frames, fps);
+    const kept = pieces ? keptMoment(pieces, target, direction) : target;
+    seek(kept === target || direction > 0 ? kept : kept - 0.5 / fps, direction);
   };
   const togglePlay = () => {
     const element = video.current;
     if (!element) return;
     if (!element.paused) return element.pause();
-    if (trim && (element.currentTime >= trim.end - 0.5 / fps || element.currentTime < trim.start)) element.currentTime = trim.start;
+    if (pieces) {
+      const atTheEnd = element.currentTime >= pieces.at(-1)!.end - 0.5 / fps;
+      const from = atTheEnd ? pieces[0]!.start : keptMoment(pieces, element.currentTime);
+      if (from !== element.currentTime) element.currentTime = from;
+    }
     void element.play();
   };
 
@@ -310,7 +323,14 @@ export function App({ state }: { state: AppDocumentState<MediaDocument> }) {
         <span className="time" aria-label="Current time">
           {formatTime(time)} / {formatTime(playhead.duration)}
         </span>
-        <Timeline duration={playhead.duration} time={time} trim={mode === "rendered" ? null : document.edits.trim} marks={mode === "rendered" ? [] : document.marks} rangeStart={rangeStart} onSeek={seek} />
+        <Timeline
+          duration={playhead.duration}
+          time={time}
+          kept={mode === "rendered" ? null : editedPieces}
+          marks={mode === "rendered" ? [] : document.marks}
+          rangeStart={rangeStart}
+          onSeek={(seconds) => seek(seconds)}
+        />
       </div>
       <p className="edits">
         {mode === "source" ? "As shot. " : ""}Edits: {describeEdits(document.edits)}

@@ -1,17 +1,19 @@
 :root {
-  color-scheme: dark;
-  --bg: #141518;
-  --panel: #1c1d21;
-  --raised: #26282e;
-  --line: #2e3036;
-  --text: #ececee;
-  --muted: #8d8f97;
-  --accent: #4f8cff;
-  --mark: #ff375f;
+  color-scheme: light dark;
+  --bg: light-dark(#ffffff, #121317);
+  --panel: light-dark(#f6f6f8, #1c1d22);
+  --raised: light-dark(#ebebf0, #26282e);
+  --hover: light-dark(#e1e1e8, #30333a);
+  --line: light-dark(#e2e2e8, #2e3036);
+  --text: light-dark(#1a1b20, #e4e5e9);
+  --muted: light-dark(#62656e, #8d909a);
+  --accent: light-dark(#5b5bd6, #7272ea);
+  --accent-hover: light-dark(#4b4bc4, #8585f0);
+  --mark: light-dark(#e0244b, #ff375f);
   --exposure: #ffc53d;
   --speed: #4cd685;
   --volume: #b18cff;
-  --done: #5d5f66;
+  --done: light-dark(#a3a5ad, #5d5f66);
   --stage-height: 62vh;
 }
 html {
@@ -41,7 +43,7 @@ button {
   cursor: pointer;
 }
 button:hover:not(:disabled) {
-  background: #30333a;
+  background: var(--hover);
 }
 button:disabled {
   opacity: 0.45;
@@ -53,7 +55,7 @@ button.primary {
   font-weight: 600;
 }
 button.primary:hover:not(:disabled) {
-  background: #6a9dff;
+  background: var(--accent-hover);
 }
 button.link {
   background: none;
@@ -226,8 +228,9 @@ button.icon.play {
   background: var(--text);
   color: var(--bg);
 }
-button.icon.play:hover {
-  background: #fff;
+button.icon.play:hover:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
 }
 .time {
   margin-left: 4px;

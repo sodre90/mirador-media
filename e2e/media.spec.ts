@@ -380,4 +380,11 @@ test("mark a box on a photo and send 'sky too bright'; the agent brightens, crop
     expect(state).toContain("- m1 box x 80, y 60, 160×120 px: sky too bright\non the left\nkeep the clouds (done)");
     expect(state).toContain("user: Turned back to as shot.");
   });
+
+  await test.step("the pane is in Mirador's theme, and changes with it", async () => {
+    const colours = () => view(page).locator("html").evaluate((element) => [getComputedStyle(element).backgroundColor, getComputedStyle(element).color]);
+    await expect.poll(colours).toEqual(["rgb(255, 255, 255)", "rgb(26, 27, 32)"]);
+    await mirador.chooseInSettings(page, "Theme", "Dark");
+    await expect.poll(colours).toEqual(["rgb(18, 19, 23)", "rgb(228, 229, 233)"]);
+  });
 });

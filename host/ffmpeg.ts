@@ -1,7 +1,7 @@
 import ffprobePath from "@derhuerst/ffprobe-static";
 import ffmpegPath from "ffmpeg-static";
 import type { Edits, Probe } from "../shared/document.ts";
-import { renderedCrop, straightenZoom, type FrameEdits } from "../shared/geometry.ts";
+import { renderedCrop, straightenZoom, type FrameEdits, type Sizing } from "../shared/geometry.ts";
 import { keptPieces, type Piece } from "../shared/timeline.ts";
 
 export const binaries = { ffmpeg: ffmpegPath, ffprobe: ffprobePath };
@@ -43,9 +43,10 @@ const evenUp = (pixels: number) => Math.ceil(pixels / 2) * 2;
  * The frame as the preview's matrix makes it: the crop, then the straightening, zoomed in so that the tilted picture
  * covers the crop to its corners and cut back to the crop's size about its middle, then the quarter turn.
  */
-export function frameFilters(probe: Probe, edits: FrameEdits) {
-  const crop = renderedCrop(probe, edits);
-  const cropping = edits.crop || crop.width !== probe.width || crop.height !== probe.height ? [`crop=${crop.width}:${crop.height}:${crop.x}:${crop.y}`] : [];
+export function frameFilters(probe: Probe, edits: FrameEdits, sizing: Sizing) {
+  const crop = renderedCrop(probe, edits, sizing);
+  const keepsAll = crop.x === 0 && crop.y === 0 && crop.width === probe.width && crop.height === probe.height;
+  const cropping = keepsAll ? [] : [`crop=${crop.width}:${crop.height}:${crop.x}:${crop.y}`];
   const zoom = straightenZoom(crop, edits.straighten);
   const straightening =
     edits.straighten === 0
@@ -65,7 +66,7 @@ export function renderArguments(input: string, output: string, edits: Edits, pro
   if (pieces.length === 0) throw new Error("the edits leave nothing of the video");
   const [from, to] = [pieces[0]!.start, pieces.at(-1)!.end];
   const joined = pieces.map((_, index) => `[v${index}]${probe.audio ? `[a${index}]` : ""}`).join("");
-  const framing = frameFilters(probe, edits);
+  const framing = frameFilters(probe, edits, { even: true });
   const concat = `${joined}concat=n=${pieces.length}:v=1:a=${probe.audio ? 1 : 0}${framing.length > 0 ? "[joined]" : "[picture]"}${probe.audio ? "[sound]" : ""}`;
   const graph = [...pieces.flatMap((piece, index) => pieceFilters(piece, index, from, probe)), concat, ...(framing.length > 0 ? [`[joined]${framing.join(",")}[picture]`] : [])].join(";");
   const webm = /\.webm$/i.test(output);
@@ -80,7 +81,21 @@ export function renderArguments(input: string, output: string, edits: Edits, pro
   ];
 }
 
+/** ffmpeg's arguments to render a photo's exposure and frame into `output`, in the format its extension names. */
+export function photoArguments(input: string, output: string, edits: Edits, probe: Probe) {
+  const filters = [...(edits.exposure.clip !== 0 ? [exposureFilter(edits.exposure.clip)] : []), ...frameFilters(probe, edits, { even: false })];
+  const format = /\.png$/i.test(output) ? [] : /\.webp$/i.test(output) ? ["-c:v", "libwebp", "-quality", "92"] : ["-q:v", "2"];
+  return [
+    ...["-hide_banner", "-nostdin", "-loglevel", "error", "-y", "-i", input],
+    ...(filters.length > 0 ? ["-vf", filters.join(",")] : []),
+    ...["-frames:v", "1", "-update", "1", ...format, output],
+  ];
+}
+
 export const PROBE_ARGUMENTS = ["-v", "error", "-show_entries", "stream=codec_type,width,height,avg_frame_rate,r_frame_rate:stream_side_data=rotation:format=duration", "-of", "json"];
+
+/** A photo's EXIF orientation shows only on its first frame. */
+export const PHOTO_PROBE_ARGUMENTS = ["-v", "error", "-read_intervals", "%+#1", "-show_entries", "stream=codec_type,width,height:frame_side_data=rotation", "-of", "json"];
 
 interface ProbedStream {
   codec_type?: string;
@@ -96,22 +111,36 @@ const rate = (fraction: string | undefined) => {
   return numerator && denominator ? numerator / denominator : null;
 };
 
-/** The video's size as it is shown (a phone's portrait video is stored on its side), length, frame rate and whether it has sound. */
+type SideData = { rotation?: number }[] | undefined;
+
+/** A picture's size as it is shown: a phone stores a portrait picture on its side, and says how to turn it. */
+function shownSize(width: number, height: number, sideData: SideData) {
+  const turned = Math.abs(sideData?.find(({ rotation }) => rotation !== undefined)?.rotation ?? 0) % 180 === 90;
+  return turned ? { width: height, height: width } : { width, height };
+}
+
+/** The video's size as it is shown, length, frame rate and whether it has sound. */
 export function probeFrom(output: string): Probe {
   const { streams = [], format = {} } = JSON.parse(output) as { streams?: ProbedStream[]; format?: { duration?: string } };
   const video = streams.find(({ codec_type }) => codec_type === "video");
   if (!video?.width || !video.height) throw new Error("it has no video stream");
-  const turned = Math.abs(video.side_data_list?.find(({ rotation }) => rotation !== undefined)?.rotation ?? 0) % 180 === 90;
   const fps = rate(video.avg_frame_rate) ?? rate(video.r_frame_rate) ?? 30;
   const duration = Number(format.duration);
   if (!Number.isFinite(duration)) throw new Error("ffprobe couldn't tell how long it is");
   return {
-    width: turned ? video.height : video.width,
-    height: turned ? video.width : video.height,
+    ...shownSize(video.width, video.height, video.side_data_list),
     duration: Math.round(duration * 1000) / 1000,
     fps: Math.round(fps * 1000) / 1000,
     audio: streams.some(({ codec_type }) => codec_type === "audio"),
   };
+}
+
+/** The photo's size as it is shown, its EXIF orientation taken into account, as ffmpeg and browsers both turn it. */
+export function photoProbeFrom(output: string): Probe {
+  const { streams = [], frames = [] } = JSON.parse(output) as { streams?: ProbedStream[]; frames?: { side_data_list?: SideData }[] };
+  const picture = streams.find(({ codec_type }) => codec_type === "video");
+  if (!picture?.width || !picture.height) throw new Error("it isn't a picture ffmpeg can read");
+  return { ...shownSize(picture.width, picture.height, frames[0]?.side_data_list), duration: 0, fps: 0, audio: false };
 }
 
 /** How far ffmpeg has got, in seconds of output, from a line of its -progress report. */

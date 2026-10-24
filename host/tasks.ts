@@ -1,33 +1,35 @@
 import { existsSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { AppTask, AppTaskContext } from "../mirador/api.ts";
-import { renderedName, type MediaDocument } from "../shared/document.ts";
+import { isPhoto, renderedName, type MediaDocument } from "../shared/document.ts";
 import { describeEdits } from "../shared/describe.ts";
 import { formatTime } from "../shared/time.ts";
 import { keptPieces, resultLength } from "../shared/timeline.ts";
-import { binaries, PROBE_ARGUMENTS, probeFrom, progressSeconds, renderArguments, runProgram } from "./ffmpeg.ts";
+import { binaries, PHOTO_PROBE_ARGUMENTS, photoArguments, photoProbeFrom, PROBE_ARGUMENTS, probeFrom, progressSeconds, renderArguments, runProgram } from "./ffmpeg.ts";
 
 function sourceFile({ document, file }: AppTaskContext<MediaDocument>) {
-  if (!document.source) throw new Error('there is no video yet; name one with { op: "source", file: "clip.mp4" }');
+  if (!document.source) throw new Error('there is no video or photo yet; name one with { op: "source", file: "clip.mp4" }');
   const path = file(document.source.file);
   if (!existsSync(path)) throw new Error(`${document.source.file} doesn't exist next to this file`);
   return { name: document.source.file, path };
 }
 
-/** Reads the video with ffprobe, and keeps what it read in the document. */
+/** Reads the video or photo with ffprobe, and keeps what it read in the document. */
 async function probed(context: AppTaskContext<MediaDocument>) {
   const { name, path } = sourceFile(context);
   context.progress(null, `reading ${name}`);
-  const read = probeFrom(await runProgram(binaries.ffprobe, [...PROBE_ARGUMENTS, path], context.signal));
+  const [args, readFrom] = isPhoto(name) ? [PHOTO_PROBE_ARGUMENTS, photoProbeFrom] : [PROBE_ARGUMENTS, probeFrom];
+  const read = readFrom(await runProgram(binaries.ffprobe, [...args, path], context.signal));
   await context.apply({ op: "probed", probe: read });
   return read;
 }
 
 export const probe: AppTask<MediaDocument> = {
-  title: "Read the video's size, length and frame rate",
+  title: "Read the size, and a video's length and frame rate",
   async run(context) {
     const { width, height, duration } = await probed(context);
-    return `${context.document.source!.file} is ${width}×${height}, ${formatTime(duration)} long.`;
+    const file = context.document.source!.file;
+    return isPhoto(file) ? `${file} is ${width}×${height}.` : `${file} is ${width}×${height}, ${formatTime(duration)} long.`;
   },
 };
 
@@ -35,7 +37,7 @@ export const probe: AppTask<MediaDocument> = {
 const unfinished = (output: string) => join(dirname(output), `.${basename(output).replace(/(\.[^.]+)$/, ".rendering$1")}`);
 
 export const render: AppTask<MediaDocument> = {
-  title: "Render the edits into a file next to the video",
+  title: "Render the edits into a file next to the source",
   async run(context) {
     const { document, apply, progress, signal } = context;
     const { name, path } = sourceFile(context);
@@ -48,10 +50,12 @@ export const render: AppTask<MediaDocument> = {
     progress(0, `rendering ${outputName}`);
     const started = Date.now();
     try {
-      await runProgram(binaries.ffmpeg, renderArguments(path, partial, edits, read), signal, (line) => {
-        const seconds = progressSeconds(line);
-        if (seconds !== null && total > 0) progress(Math.min(1, seconds / total), `${formatTime(seconds)} of ${formatTime(total)}`);
-      });
+      if (isPhoto(name)) await runProgram(binaries.ffmpeg, photoArguments(path, partial, edits, read), signal);
+      else
+        await runProgram(binaries.ffmpeg, renderArguments(path, partial, edits, read), signal, (line) => {
+          const seconds = progressSeconds(line);
+          if (seconds !== null && total > 0) progress(Math.min(1, seconds / total), `${formatTime(seconds)} of ${formatTime(total)}`);
+        });
       renameSync(partial, output);
     } finally {
       rmSync(partial, { force: true });

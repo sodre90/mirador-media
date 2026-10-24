@@ -1,4 +1,4 @@
-import type { Box, Probe } from "./document.ts";
+import { isPhoto, type Box, type Probe } from "./document.ts";
 import type { FrameEdits } from "./geometry.ts";
 import { describeBox } from "./operations.ts";
 import { formatExposure, formatTime, frameAt } from "./time.ts";
@@ -23,9 +23,14 @@ function framingNote({ crop, straighten, turn }: FrameEdits) {
  * frame, so that the box's pixels are the picture's.
  */
 export function markMessage(file: string, probe: Probe, mark: MarkToSend, shown: { exposure: number; frame: FrameEdits }, frameTime: number) {
+  const asShown = `${shown.exposure !== 0 ? `as the preview shows it, at exposure ${formatExposure(shown.exposure)}` : "as shot"}.${framingNote(shown.frame)}`;
+  if (isPhoto(file)) {
+    const where = mark.box ? `, in the box ${describeBox(mark.box)} of the ${probe.width}×${probe.height} photo` : "";
+    return `In ${file}${where}: ${mark.note}\n\n(Mark ${mark.id}. The picture is the photo${mark.box ? " with the box drawn on it in red" : ""}, ${asShown})`;
+  }
   const frames = (seconds: number) => frameAt(seconds, probe.fps);
   const when = mark.end === null ? `at ${formatTime(mark.at)} (frame ${frames(mark.at)})` : `from ${formatTime(mark.at)} to ${formatTime(mark.end)} (frames ${frames(mark.at)}–${frames(mark.end)})`;
   const where = mark.box ? `, in the box ${describeBox(mark.box)} of the ${probe.width}×${probe.height} frame` : "";
-  const picture = `The picture is the frame at ${formatTime(frameTime)}${mark.box ? " with the box drawn on it in red" : ""}, ${shown.exposure !== 0 ? `as the preview shows it, at exposure ${formatExposure(shown.exposure)}` : "as shot"}.${framingNote(shown.frame)}`;
+  const picture = `The picture is the frame at ${formatTime(frameTime)}${mark.box ? " with the box drawn on it in red" : ""}, ${asShown}`;
   return `In ${file} ${when}${where}: ${mark.note}\n\n(Mark ${mark.id}. ${picture})`;
 }

@@ -46,7 +46,7 @@ describe("applyOperation", () => {
     expect(refusal(withVideo(), { op: "trim", start: 5, end: 90 })).toBe("end is past the end: clip.mp4 is 1:23.40 long.");
     expect(refusal(withVideo(), { op: "trim", start: 44, end: 5 })).toBe("The trim's end must come after its start.");
     expect(refusal(withVideo(), { op: "untrim" })).toBe("There is no trim to take off.");
-    expect(refusal(newDocument(), { op: "trim", start: 1, end: 2 })).toContain("There is no video yet");
+    expect(refusal(newDocument(), { op: "trim", start: 1, end: 2 })).toContain("There is no video or photo yet");
   });
 
   test("cuts parts out, joining cuts that touch, puts a part back, and refuses to leave nothing", () => {
@@ -126,6 +126,25 @@ describe("applyOperation", () => {
     expect(refusal(withVideo(), { op: "straighten", degrees: 50 })).toBe("degrees must be from -45 to 45: clockwise, or anticlockwise below 0.");
   });
 
+  test("refuses what needs time on a photo, and marks a photo with a box and a note alone", () => {
+    const photo: MediaDocument = { ...newDocument(), source: { file: "IMG_1.JPG", probe: { width: 4032, height: 3024, duration: 0, fps: 0, audio: false } } };
+    for (const operation of [{ op: "trim", start: 0, end: 1 }, { op: "cut", start: 0, end: 1 }, { op: "speed", rate: 2 }, { op: "volume", level: 0 }, { op: "clear", edit: "exposure" }]) {
+      expect(refusal(photo, operation)).toBe(`IMG_1.JPG is a photo: ${operation.op} works on a video's time.`);
+    }
+    expect(refusal(photo, { op: "exposure", ev: 1, start: 0, end: 1 })).toBe("IMG_1.JPG is a photo: its exposure is for all of it, without start and end.");
+    expect(refusal(photo, { op: "mark", at: 3, note: "x" })).toBe("IMG_1.JPG is a photo: a mark on it takes a box and a note, no time.");
+    const { document, summaries } = applied(photo, { op: "exposure", ev: 1 }, { op: "straighten", degrees: -2.5 }, { op: "mark", box: { x: 10, y: 20, width: 300, height: 200 }, note: "sky" }, { op: "mark", note: "all of it" });
+    expect([document.edits.exposure.clip, document.edits.straighten]).toEqual([1, -2.5]);
+    expect(document.marks.map(({ at, end, box }) => ({ at, end, box }))).toEqual([
+      { at: 0, end: null, box: { x: 10, y: 20, width: 300, height: 200 } },
+      { at: 0, end: null, box: null },
+    ]);
+    expect(summaries.slice(2)).toEqual(["Marked m1 in the box x 10, y 20, 300×200 px: sky", "Marked m2: all of it"]);
+    const opened = applyOperation({ ...newDocument(), source: { file: "IMG_1.JPG", probe: null } }, { op: "probed", probe: { width: 25, height: 33, duration: 0, fps: 0, audio: false } });
+    expect(opened.summary).toBe("Read IMG_1.JPG: 25×33.");
+    expect(opened.document.source!.probe).toEqual({ width: 25, height: 33, duration: 0, fps: 0, audio: false });
+  });
+
   test("marks a moment, a range and a box in whole source pixels kept inside the frame, numbering them for good", () => {
     const { document, summaries } = applied(
       withVideo(),
@@ -190,6 +209,12 @@ describe("checkedDocument", () => {
     expect(() => checkedDocument({ ...document, edits: { ...document.edits, cuts: [{ start: 5, end: 6 }, { start: 1, end: 2 }] } })).toThrow("edits: cuts must be in order, none overlapping");
   });
 
+  test("takes a photo's probe at 0 fps, but not a video's", () => {
+    const at = (file: string) => ({ ...newDocument(), source: { file, probe: { width: 25, height: 33, duration: 0, fps: 0, audio: false } } });
+    expect(checkedDocument(at("IMG_1.JPG")).source!.probe!.fps).toBe(0);
+    expect(() => checkedDocument(at("clip.mp4"))).toThrow("source.probe needs a duration, an fps above 0 and whether it has sound");
+  });
+
   test("reads a document from before cuts, speed and volume existed, whose exposure was one number", () => {
     const older = { ...withVideo(), edits: { trim: { start: 1, end: 9 }, exposure: 1 }, rendered: { file: "clip.edited.mp4", edits: { trim: null, exposure: 1 }, at: 1 } };
     const read = checkedDocument(JSON.parse(JSON.stringify(older)));
@@ -214,8 +239,9 @@ describe("sameEdits", () => {
 });
 
 describe("renderedName", () => {
-  test("puts .edited before the extension, and keeps WebM as WebM but makes everything else MP4", () => {
+  test("puts .edited before the extension, and keeps WebM as WebM, a photo as its own format, but makes everything else MP4", () => {
     expect(renderedName("clip.mp4")).toBe("clip.edited.mp4");
+    expect([renderedName("IMG_1.JPG"), renderedName("a.jpeg"), renderedName("shot.png"), renderedName("p.webp")]).toEqual(["IMG_1.edited.JPG", "a.edited.jpeg", "shot.edited.png", "p.edited.webp"]);
     expect(renderedName("shots/Day 1.MOV")).toBe("shots/Day 1.edited.mp4");
     expect(renderedName("clip.webm")).toBe("clip.edited.webm");
     expect(renderedName("noextension")).toBe("noextension.edited.mp4");

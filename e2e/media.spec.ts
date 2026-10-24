@@ -27,6 +27,9 @@ function testClip(path: string) {
   execFileSync(ffmpeg!, ["-hide_banner", "-loglevel", "error", "-y", ...sources, "-c:v", "libvpx", "-b:v", "300k", "-c:a", "libopus", path]);
 }
 
+/** A photo of the test pattern, 320×240, as a camera would write it. */
+const testPhoto = (path: string) => execFileSync(ffmpeg!, ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=320x240", "-frames:v", "1", "-q:v", "2", path]);
+
 const durationOf = (path: string) => Number(execFileSync(ffprobe, ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path], { encoding: "utf8" }));
 
 test.beforeAll(async () => {
@@ -39,6 +42,7 @@ test.beforeAll(async () => {
   symlinkSync(pluginDir, join(host.dataDir, "plugins", "media"));
   await host.start();
   testClip(join(host.projectDir, "clip.webm"));
+  testPhoto(join(host.projectDir, "photo.jpg"));
 });
 test.afterAll(async () => {
   await host?.stop();
@@ -51,6 +55,31 @@ async function startConversation(page: Page) {
   await page.getByRole("button", { name: "+ New conversation" }).click();
   await expect(page).not.toHaveURL(previousUrl);
   return page.url().match(/#\/c\/(.+)$/)![1]!;
+}
+
+/** Signs in, adds the project and the fake agent's profile unless an earlier test did, and starts a conversation with it. */
+async function startWithTheAgent(page: Page) {
+  await mirador.signIn(page, host);
+  const [newConversation, addProject] = [page.getByRole("button", { name: "+ New conversation" }), page.getByRole("button", { name: "+ Add a project directory" })];
+  await expect(newConversation.or(addProject)).toBeVisible();
+  if (await addProject.isVisible()) {
+    await mirador.addWorkspace(page, host.projectDir);
+    const profiles = await mirador.createProfile(page, profileName, "", "", "opencode");
+    await profiles.getByRole("button", { name: "Close" }).click();
+  }
+  await page.getByLabel("Agent", { exact: true }).selectOption({ label: `${profileName} · opencode` });
+  const conversation = await startConversation(page);
+  await mirador.sendMessage(page, "Start");
+  await expect(page.locator(".chat-header:visible .badge")).toHaveText("idle", { timeout: 60_000 });
+  return conversation;
+}
+
+/** Mirador's canvas brings an app forward when it first opens in the workspace, not when the agent opens another file in it. */
+async function showTheApp(page: Page) {
+  const toggle = page.locator(".canvas-panel:visible .app-toggle", { hasText: "Media" });
+  await expect(toggle).toBeVisible();
+  if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
 }
 
 /** Drags across the frame between two points given as fractions of it, as the user draws a box. */
@@ -145,17 +174,10 @@ const likeness = (a: Buffer, b: Buffer) => Math.min(...[0, 1, 2].map((which) => 
 
 test("mark 0:39 with a box and send 'too dark here'; the agent trims, cuts, slows, mutes and brightens it, the pane previews that, and the render can be compared", async ({ page }) => {
   await page.addInitScript(tapTheSound);
-  await mirador.signIn(page, host);
-  await mirador.addWorkspace(page, host.projectDir);
-  const profiles = await mirador.createProfile(page, profileName, "", "", "opencode");
-  await profiles.getByRole("button", { name: "Close" }).click();
-  await page.getByLabel("Agent", { exact: true }).selectOption({ label: `${profileName} · opencode` });
-  const conversation = await startConversation(page);
-  await mirador.sendMessage(page, "Start");
-  await expect(page.locator(".chat-header:visible .badge")).toHaveText("idle", { timeout: 60_000 });
+  const conversation = await startWithTheAgent(page);
 
   await test.step("the agent opens the video in the app, which reads its size, length and frame rate", async () => {
-    expect(await mirador.callCanvasTool(host, conversation, "app_open", { app: "media", file: "clip.media.json" })).toContain("No video yet.");
+    expect(await mirador.callCanvasTool(host, conversation, "app_open", { app: "media", file: "clip.media.json" })).toContain("No video or photo yet.");
     expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "source", file: "clip.webm" } })).toBe("Opened clip.webm.");
     await expect(view(page).locator("header")).toContainText("clip.webm");
     await expect(view(page).locator(".facts")).toHaveText("320×240 · 10 fps · 0:45.00");
@@ -263,5 +285,61 @@ test("mark 0:39 with a box and send 'too dark here'; the agent trims, cuts, slow
     await view(page).getByRole("button", { name: "Rendered" }).click();
     await expect(view(page).getByLabel("Current time")).toHaveText(/^0:06\.05 \/ 0:11\.\d\d$/);
     await expect.poll(async () => likeness(previewed, await frameCells(page)), { timeout: 10_000 }).toBeGreaterThan(0.9);
+  });
+});
+
+test("mark a box on a photo and send 'sky too bright'; the agent brightens, crops and turns it, and the render can be compared", async ({ page }) => {
+  const conversation = await startWithTheAgent(page);
+
+  await test.step("the agent opens the photo, which shows without time", async () => {
+    expect(await mirador.callCanvasTool(host, conversation, "app_open", { app: "media", file: "photo.media.json" })).toContain("No video or photo yet.");
+    expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "source", file: "photo.jpg" } })).toBe("Opened photo.jpg.");
+    await showTheApp(page);
+    await expect(view(page).locator(".facts")).toHaveText("320×240");
+    expect(await mirador.callCanvasTool(host, conversation, "app_state", {})).toContain("Photo: photo.jpg, 320×240.");
+    await expect(view(page).locator(".frame img")).toBeVisible();
+    await expect(view(page).getByLabel("Current time")).toHaveCount(0);
+    await expect(view(page).getByRole("button", { name: "Start a range here" })).toHaveCount(0);
+  });
+
+  await test.step("the user draws a box on the photo and sends what's wrong there, with the photo", async () => {
+    await drawBox(page, [0.25, 0.25], [0.75, 0.75]);
+    await expect(view(page).locator(".composer .where")).toHaveText("box 160×120 pxClear the box");
+    await view(page).getByLabel("What's wrong here").fill("sky too bright");
+    await view(page).getByRole("button", { name: "Send to the agent" }).click();
+    await expect(view(page).locator(".composer [role=status]")).toHaveText("Sent to the agent as m1.");
+    await expect(page.locator(".chat-header:visible .badge")).toHaveText("idle", { timeout: 60_000 });
+    await expect.poll(prompts).toContain(
+      "About photo.media.json, open in Media (app_state reads it, apply changes it):\n\nIn photo.jpg, in the box x 80, y 60, 160×120 px of the 320×240 photo: sky too bright\n\n(Mark m1. The picture is the photo with the box drawn on it in red, as shot.)",
+    );
+    const sent = page.locator(".timeline:visible .message.user").last();
+    await expect.poll(() => sent.locator(".message-images img").evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(320);
+    expect(await mirador.callCanvasTool(host, conversation, "app_state", {})).toContain("- m1 box x 80, y 60, 160×120 px: sky too bright");
+    await expect(view(page).locator(".box")).toHaveCount(1);
+  });
+
+  await test.step("the agent can't trim a photo, but brightens, crops it to the pixel and turns it, and the pane previews that", async () => {
+    expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "trim", start: 0, end: 1 } })).toContain("photo.jpg is a photo: trim works on a video's time.");
+    expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "exposure", ev: 1 } })).toBe("Set the exposure to +1.00 EV.");
+    expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "crop", x: 80, y: 60, width: 161, height: 121 } })).toBe("Cropped to x 80, y 60, 161×121 px.");
+    expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "turn", degrees: 90 } })).toBe("Turned 90° clockwise.");
+    await expect(view(page).locator(".edits")).toHaveText("Edits: exposure +1.00 EV; crop x 80, y 60, 161×121 px; turned 90° clockwise");
+    expect(await mirador.callCanvasTool(host, conversation, "app_state", {})).toContain("Its frame is 121×161.");
+    await expect(view(page).locator(".frame img")).toHaveCSS("filter", "brightness(2)");
+    await expect.poll(async () => view(page).locator(".frame").boundingBox().then((frame) => +(frame!.width / frame!.height).toFixed(3))).toBe(+(121 / 161).toFixed(3));
+  });
+
+  await test.step("the agent renders the photo as a JPEG, and the preview shows it as the render made it", async () => {
+    expect(await mirador.callCanvasTool(host, conversation, "app_run", { task: "render" })).toMatch(
+      /^Rendered photo\.edited\.jpg \(edits: exposure \+1\.00 EV; crop x 80, y 60, 161×121 px; turned 90° clockwise\) in \d+ s; the user can compare it with photo\.jpg in the app\.$/,
+    );
+    expect(sizeOf(join(host.projectDir, "photo.edited.jpg"))).toBe("121x161");
+    const previewed = await frameCells(page);
+    await view(page).getByRole("button", { name: "Rendered" }).click();
+    await expect(view(page).locator(".frame img")).toHaveCSS("filter", "none");
+    await expect.poll(async () => likeness(previewed, await frameCells(page)), { timeout: 10_000 }).toBeGreaterThan(0.9);
+    await view(page).getByRole("button", { name: "Source" }).click();
+    await expect(view(page).locator(".edits")).toHaveText(/^As shot\. Edits: exposure .* \(Preview shows them\)$/);
+    await expect.poll(async () => view(page).locator(".frame").boundingBox().then((frame) => +(frame!.width / frame!.height).toFixed(2))).toBe(1.33);
   });
 });

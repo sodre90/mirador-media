@@ -1,22 +1,41 @@
-import { changesSetting, hasEdits, renderedName, sameEdits, SETTING_NAMES, SETTINGS, type Edits, type MediaDocument, type Mark, type SettingName } from "./document.ts";
+import { changesSetting, hasEdits, isPhoto, renderedName, sameEdits, SETTING_NAMES, SETTINGS, type Edits, type MediaDocument, type Mark, type SettingName } from "./document.ts";
 import { framed } from "./geometry.ts";
 import { describeBox, describeSpan, describeStraighten, describeTurn, describeWhen } from "./operations.ts";
 import { keptParts, keptPieces, resultLength } from "./timeline.ts";
 import { formatFps, formatTime, SETTING_FORMATS } from "./time.ts";
 
-export const OPERATIONS_HELP = `Operations (times in seconds into the source, boxes in the source's pixels):
-- { op: "source", file: "clip.mp4" }: the video, relative to this file's folder
-- { op: "trim", start: 5, end: 44 } keeps that part; { op: "untrim" } keeps all of it
-- { op: "cut", start: 12, end: 15 } takes that part out; { op: "uncut", start: 12, end: 15 } puts it back
-- { op: "exposure", ev: 0.5 }: stops brighter, or darker below 0, from -3 to 3; 0 is as shot
-- { op: "speed", rate: 0.5 }: times as fast, from 0.25 to 4; 1 is as shot, and the sound keeps its pitch
-- { op: "volume", level: 0.5 }: times as loud, from 0 (muted) to 4; 1 is as recorded
-- Exposure, speed and volume take start and end too, to set that part only: its value replaces the clip's there. { op: "clear", edit: "speed", start?, end? } takes such parts off again
-- { op: "crop", x, y, width, height } keeps that part of the frame, in the source's pixels; { op: "uncrop" }
-- { op: "straighten", degrees: 2.5 }: clockwise, or anticlockwise below 0, from -45 to 45, inside the crop and zoomed in to fill it
-- { op: "turn", degrees: 90 }: quarter turns clockwise from as shot, 90, 180 or 270; 0 turns it back. The crop comes first, then the straightening, then the turn
-- { op: "mark-done", mark: "m1" } once you dealt with a mark; done: false opens it again
-- { op: "mark", at: 39.2, end?: 44, box?: { x, y, width, height }, note: "…" }, { op: "remove-mark", mark: "m1" }`;
+const SOURCE_HELP = '- { op: "source", file: "clip.mp4" }: the video, or a .jpg, .png or .webp photo, relative to this file\'s folder';
+const EXPOSURE_HELP = '- { op: "exposure", ev: 0.5 }: stops brighter, or darker below 0, from -3 to 3; 0 is as shot';
+const FRAME_HELP = [
+  '- { op: "crop", x, y, width, height } keeps that part of the frame, in the source\'s pixels; { op: "uncrop" }',
+  '- { op: "straighten", degrees: 2.5 }: clockwise, or anticlockwise below 0, from -45 to 45, inside the crop and zoomed in to fill it',
+  '- { op: "turn", degrees: 90 }: quarter turns clockwise from as shot, 90, 180 or 270; 0 turns it back. The crop comes first, then the straightening, then the turn',
+];
+const MARK_DONE_HELP = '- { op: "mark-done", mark: "m1" } once you dealt with a mark; done: false opens it again';
+
+export const OPERATIONS_HELP = [
+  "Operations (times in seconds into the source, boxes in the source's pixels):",
+  SOURCE_HELP,
+  '- { op: "trim", start: 5, end: 44 } keeps that part; { op: "untrim" } keeps all of it',
+  '- { op: "cut", start: 12, end: 15 } takes that part out; { op: "uncut", start: 12, end: 15 } puts it back',
+  EXPOSURE_HELP,
+  '- { op: "speed", rate: 0.5 }: times as fast, from 0.25 to 4; 1 is as shot, and the sound keeps its pitch',
+  '- { op: "volume", level: 0.5 }: times as loud, from 0 (muted) to 4; 1 is as recorded',
+  '- Exposure, speed and volume take start and end too, to set that part only: its value replaces the clip\'s there. { op: "clear", edit: "speed", start?, end? } takes such parts off again',
+  ...FRAME_HELP,
+  MARK_DONE_HELP,
+  '- { op: "mark", at: 39.2, end?: 44, box?: { x, y, width, height }, note: "…" }, { op: "remove-mark", mark: "m1" }',
+].join("\n");
+
+/** A photo has no time, so the operations on it are the exposure, the frame and the marks. */
+export const PHOTO_OPERATIONS_HELP = [
+  "Operations (boxes in the photo's pixels, as it is shown upright):",
+  SOURCE_HELP,
+  EXPOSURE_HELP,
+  ...FRAME_HELP,
+  MARK_DONE_HELP,
+  '- { op: "mark", box?: { x, y, width, height }, note: "…" }, { op: "remove-mark", mark: "m1" }',
+].join("\n");
 
 export function describeEdits(edits: Edits) {
   if (!hasEdits(edits)) return "none";
@@ -38,11 +57,15 @@ function describeSetting(edits: Edits, name: SettingName) {
   return `${name} ${[...clip, ...ranges].join(", ")}`;
 }
 
-const describeMark = (mark: Mark) => `- ${mark.id} ${describeWhen(mark)}${mark.box ? `, box ${describeBox(mark.box)}` : ""}: ${mark.note || "(no note)"}${mark.done ? " (done)" : ""}`;
+function describeMark(mark: Mark, photo: boolean) {
+  const where = [photo ? null : describeWhen(mark), mark.box && `box ${describeBox(mark.box)}`].filter(Boolean).join(", ");
+  return `- ${mark.id}${where ? ` ${where}` : ""}: ${mark.note || "(no note)"}${mark.done ? " (done)" : ""}`;
+}
 
 function describeSource(document: MediaDocument) {
   const { source } = document;
-  if (!source) return 'No video yet. Name the one to edit, next to this file, with { op: "source", file: "clip.mp4" }.';
+  if (!source) return 'No video or photo yet. Name the one to edit, next to this file, with { op: "source", file: "clip.mp4" }; a photo is a .jpg, .png or .webp.';
+  if (isPhoto(source.file)) return source.probe ? `Photo: ${source.file}, ${source.probe.width}×${source.probe.height}.` : `Photo: ${source.file}, not read yet; app_run probe reads its size.`;
   if (!source.probe) return `Video: ${source.file}, not read yet; app_run probe reads its size, length and frame rate.`;
   const { width, height, fps, duration, audio } = source.probe;
   return `Video: ${source.file}, ${width}×${height}, ${formatFps(fps)} fps, ${formatTime(duration)}, ${audio ? "with sound" : "silent"}.`;
@@ -58,7 +81,7 @@ const changesFrame = ({ crop, turn, straighten }: Edits) => crop !== null || tur
 
 function describeResultFrame({ source, edits }: MediaDocument) {
   if (!source?.probe || !changesFrame(edits)) return "";
-  const { width, height } = framed(source.probe, edits).size;
+  const { width, height } = framed(source.probe, edits, { even: !isPhoto(source.file) }).size;
   return ` Its frame is ${width}×${height}.`;
 }
 
@@ -70,17 +93,18 @@ function describeRendered(document: MediaDocument) {
   return `Rendered: ${rendered.file}, ${current}.`;
 }
 
-/** The document for the agent: the video, the edits the user previews, the marks open first, and how to change them. */
+/** The document for the agent: the video or photo, the edits the user previews, the marks open first, and how to change them. */
 export function describeDocument(document: MediaDocument) {
   const marks = [...document.marks].sort((a, b) => Number(a.done) - Number(b.done) || a.at - b.at);
   const target = document.source ? renderedName(document.source.file) : "the edited file";
+  const photo = document.source !== null && isPhoto(document.source.file);
   return [
     describeSource(document),
     `Edits, which the user sees at once in the preview: ${describeEdits(document.edits)}.${describeResultLength(document)}${describeResultFrame(document)}`,
     describeRendered(document),
-    marks.length > 0 ? `Marks the user made, open first:\n${marks.map(describeMark).join("\n")}` : "No marks yet.",
+    marks.length > 0 ? `Marks the user made, open first:\n${marks.map((mark) => describeMark(mark, photo)).join("\n")}` : "No marks yet.",
     `When your edits are done, run app_run render: it writes ${target} next to the source, in place of the one before, and the user compares it with the source.`,
-    OPERATIONS_HELP,
+    photo ? PHOTO_OPERATIONS_HELP : OPERATIONS_HELP,
   ]
     .filter((part) => part !== null)
     .join("\n\n");

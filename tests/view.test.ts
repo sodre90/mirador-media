@@ -10,12 +10,12 @@ describe("the frame on the stage", () => {
   const source = { width: 1920, height: 1080 };
 
   test("is as large as fits, letterboxed in a tall stage and pillarboxed in a wide one", () => {
-    expect(frameOnStage({ width: 800, height: 600 }, source, NO_EDITS)).toMatchObject({ left: 0, top: 75, width: 800, height: 450 });
-    expect(frameOnStage({ width: 1000, height: 450 }, source, NO_EDITS)).toMatchObject({ left: 100, top: 0, width: 800, height: 450 });
+    expect(frameOnStage({ width: 800, height: 600 }, source, NO_EDITS, { even: true })).toMatchObject({ left: 0, top: 75, width: 800, height: 450 });
+    expect(frameOnStage({ width: 1000, height: 450 }, source, NO_EDITS, { even: true })).toMatchObject({ left: 100, top: 0, width: 800, height: 450 });
   });
 
   test("is the crop's shape, turned, and puts the crop's corner where the turn takes it", () => {
-    const frame = frameOnStage({ width: 1000, height: 1000 }, source, { ...NO_EDITS, crop: { x: 960, y: 0, width: 960, height: 540 }, turn: 90 });
+    const frame = frameOnStage({ width: 1000, height: 1000 }, source, { ...NO_EDITS, crop: { x: 960, y: 0, width: 960, height: 540 }, turn: 90 }, { even: true });
     expect([frame.left, frame.top, frame.width, frame.height].map((pixels) => Math.round(pixels * 1e6) / 1e6 + 0)).toEqual([218.75, 0, 562.5, 1000]);
     const cropCorner = sourcePoint(frame, source, 562.5, 0);
     expect(cropCorner.x).toBeCloseTo(960, 6);
@@ -25,7 +25,7 @@ describe("the frame on the stage", () => {
 
 describe("the box drawn on the screen", () => {
   const source = { width: 1920, height: 1080 };
-  const frame = frameOnStage({ width: 1000, height: 450 }, source, NO_EDITS);
+  const frame = frameOnStage({ width: 1000, height: 450 }, source, NO_EDITS, { even: true });
 
   test("is in the source's pixels, whichever way it was dragged, and stays on the picture", () => {
     const [a, b] = [sourcePoint(frame, source, 50, 225), sourcePoint(frame, source, 800 * 0.75, 450)];
@@ -34,7 +34,7 @@ describe("the box drawn on the screen", () => {
   });
 
   test("maps back to where it was drawn through the straightening and the turn", () => {
-    const straightened = frameOnStage({ width: 900, height: 900 }, source, { ...NO_EDITS, crop: { x: 200, y: 100, width: 1200, height: 800 }, straighten: 7, turn: 270 });
+    const straightened = frameOnStage({ width: 900, height: 900 }, source, { ...NO_EDITS, crop: { x: 200, y: 100, width: 1200, height: 800 }, straighten: 7, turn: 270 }, { even: true });
     const point = sourcePoint(straightened, source, 300, 400);
     const back = [straightened.toScreen.a * point.x + straightened.toScreen.c * point.y + straightened.toScreen.e, straightened.toScreen.b * point.x + straightened.toScreen.d * point.y + straightened.toScreen.f];
     expect(back[0]).toBeCloseTo(300, 6);

@@ -1,5 +1,5 @@
 import type { Box } from "../shared/document.ts";
-import { framed, inverted, mapped, scaled, then, type Affine, type FrameEdits, type Point, type Size } from "../shared/geometry.ts";
+import { framed, inverted, mapped, scaled, then, type Affine, type FrameEdits, type Point, type Size, type Sizing } from "../shared/geometry.ts";
 
 export interface FrameOnStage {
   left: number;
@@ -11,8 +11,8 @@ export interface FrameOnStage {
 }
 
 /** Where the frame the edits make sits on the stage, as large as fits, and how the source maps onto it. */
-export function frameOnStage(stage: Size, source: Size, edits: FrameEdits): FrameOnStage {
-  const { size, matrix } = framed(source, edits);
+export function frameOnStage(stage: Size, source: Size, edits: FrameEdits, sizing: Sizing): FrameOnStage {
+  const { size, matrix } = framed(source, edits, sizing);
   const scale = Math.min(stage.width / size.width, stage.height / size.height);
   const [width, height] = [size.width * scale, size.height * scale];
   return { left: (stage.width - width) / 2, top: (stage.height - height) / 2, width, height, toScreen: then(matrix, scaled(scale)) };

@@ -23,7 +23,7 @@ export function useMediaUrl(file: string | null, version: unknown) {
   return url?.file === file ? url : null;
 }
 
-/** Reads the video once a source has none of what the probe reads, unless a task is already running. */
+/** Reads the video or photo once a source has none of what the probe reads, unless a task is already running. */
 export function useProbeOnce(document: MediaDocument | undefined, task: AppTaskState | null) {
   const asked = useRef<string | null>(null);
   const source = document?.source;
@@ -103,16 +103,21 @@ export const ClearBox = ({ box, onClear }: { box: Box | null; onClear: () => voi
     </button>
   );
 
-export function MarkList({ document, onSeek }: { document: MediaDocument; onSeek: (seconds: number) => void }) {
+/** The marks, each ticked off when dealt with; a video's go to their moment, while a photo's have none. */
+export function MarkList({ document, onSeek }: { document: MediaDocument; onSeek?: (seconds: number) => void }) {
   if (document.marks.length === 0) return null;
   return (
     <ul className="marks" aria-label="Marks">
       {document.marks.map((mark) => (
         <li key={mark.id} className={mark.done ? "done" : undefined}>
           <input type="checkbox" checked={mark.done} aria-label={`${mark.id} done`} onChange={(event) => window.mirador.apply({ op: "mark-done", mark: mark.id, done: event.target.checked })} />
-          <button type="button" className="link" onClick={() => onSeek(mark.at)}>
-            {mark.id} {describeWhen(mark)}
-          </button>
+          {onSeek ? (
+            <button type="button" className="link" onClick={() => onSeek(mark.at)}>
+              {mark.id} {describeWhen(mark)}
+            </button>
+          ) : (
+            <span>{mark.id}</span>
+          )}
           <span className="note">{mark.note}</span>
           <button type="button" className="remove" aria-label={`Remove ${mark.id}`} onClick={() => window.mirador.apply({ op: "remove-mark", mark: mark.id })}>
             ×

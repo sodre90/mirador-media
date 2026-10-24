@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent, type RefObject } from "react";
 import type { Box } from "../shared/document.ts";
-import { corners, cssMatrix, type FrameEdits, type Point, type Size } from "../shared/geometry.ts";
+import { corners, cssMatrix, type FrameEdits, type Point, type Size, type Sizing } from "../shared/geometry.ts";
 import { boxBetween, frameOnStage, sourcePoint } from "./geometry.ts";
 
 export interface ShownBox {
@@ -23,52 +23,59 @@ function useSize(element: RefObject<HTMLElement | null>) {
   return size;
 }
 
-/** The size of the picture the video shows, as it learns it. */
-function usePictureSize(video: RefObject<HTMLVideoElement | null>) {
+/** The element that shows the picture: a video, or a photo's img. */
+export type Picture = { kind: "video"; ref: RefObject<HTMLVideoElement | null> } | { kind: "photo"; ref: RefObject<HTMLImageElement | null> };
+
+function naturalSize(element: HTMLVideoElement | HTMLImageElement): Size | null {
+  const [width, height] = element instanceof HTMLVideoElement ? [element.videoWidth, element.videoHeight] : [element.naturalWidth, element.naturalHeight];
+  return width > 0 ? { width, height } : null;
+}
+
+/** The size of the picture the element shows, as it learns it. */
+function usePictureSize(picture: Picture) {
   const [size, setSize] = useState<Size | null>(null);
   useEffect(() => {
-    const element = video.current;
+    const element = picture.ref.current;
     if (!element) return;
-    const measure = () => setSize(element.videoWidth > 0 ? { width: element.videoWidth, height: element.videoHeight } : null);
-    element.addEventListener("loadedmetadata", measure);
-    element.addEventListener("resize", measure);
+    const measure = () => setSize(naturalSize(element));
+    const events = picture.kind === "video" ? ["loadedmetadata", "resize"] : ["load"];
+    events.forEach((event) => element.addEventListener(event, measure));
     measure();
-    return () => {
-      element.removeEventListener("loadedmetadata", measure);
-      element.removeEventListener("resize", measure);
-    };
-  }, [video]);
+    return () => events.forEach((event) => element.removeEventListener(event, measure));
+  }, [picture.kind, picture.ref]);
   return size;
 }
 
 const pointsOf = (points: Point[]) => points.map(({ x, y }) => `${x},${y}`).join(" ");
 
 /**
- * The video in the frame the edits make of it, and over it the boxes of the marks at this moment; dragging across the
+ * The video or photo in the frame the edits make of it, and over it the boxes of the marks shown; dragging across the
  * frame draws a new box. Boxes are in the source's pixels, so a crop, a turn or straightening moves and tilts them with
  * the picture.
  */
 export function Player({
-  video,
+  picture: element,
   src,
   filter,
   frameEdits,
+  sizing,
   boxes,
   canDraw,
   onBox,
 }: {
-  video: RefObject<HTMLVideoElement | null>;
+  picture: Picture;
   src: string | null;
   filter: string;
   frameEdits: FrameEdits;
+  sizing: Sizing;
   boxes: ShownBox[];
   canDraw: boolean;
   onBox: (box: Box | null) => void;
 }) {
   const stage = useRef<HTMLDivElement>(null);
   const stageSize = useSize(stage);
-  const picture = usePictureSize(video);
-  const frame = stageSize && picture ? frameOnStage(stageSize, picture, frameEdits) : null;
+  const picture = usePictureSize(element);
+  const frame = stageSize && picture ? frameOnStage(stageSize, picture, frameEdits, sizing) : null;
   const [corner, setCorner] = useState<{ from: Point; to: Point } | null>(null);
   const overlay = useRef<HTMLDivElement>(null);
 
@@ -92,17 +99,15 @@ export function Player({
 
   const drawing: ShownBox[] = corner ? [{ key: "drawing", box: boxBetween(corner.from, corner.to), label: "", drawing: true }] : [];
   const placed = frame ? { left: frame.left, top: frame.top, width: frame.width, height: frame.height } : { inset: 0 };
+  const placedPicture = frame && picture ? { width: picture.width, height: picture.height, transform: cssMatrix(frame.toScreen), filter } : { visibility: "hidden" as const };
   return (
     <div ref={stage} className="stage">
       <div className="frame" style={placed}>
-        <video
-          ref={video}
-          src={src ?? undefined}
-          crossOrigin="anonymous"
-          preload="auto"
-          playsInline
-          style={frame && picture ? { width: picture.width, height: picture.height, transform: cssMatrix(frame.toScreen), filter } : { visibility: "hidden" }}
-        />
+        {element.kind === "video" ? (
+          <video ref={element.ref} src={src ?? undefined} crossOrigin="anonymous" preload="auto" playsInline style={placedPicture} />
+        ) : (
+          <img ref={element.ref} src={src ?? undefined} crossOrigin="anonymous" alt="" draggable={false} style={placedPicture} />
+        )}
         {frame && (
           <svg className="boxes" width={frame.width} height={frame.height}>
             {[...boxes, ...drawing].map(({ key, box, label, drawing: inProgress }) => {

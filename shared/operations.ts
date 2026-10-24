@@ -1,4 +1,4 @@
-import { checkedDocument, hasEdits, MAX_STRAIGHTEN, NO_EDITS, SETTING_NAMES, SETTINGS, type Box, type Edits, type MediaDocument, type Probe, type Ranged, type SettingName } from "./document.ts";
+import { checkedDocument, hasEdits, isPhoto, MAX_STRAIGHTEN, NO_EDITS, SETTING_NAMES, SETTINGS, type Box, type Edits, type MediaDocument, type Probe, type Ranged, type SettingName } from "./document.ts";
 import { overlaps, painted, withoutSpan, withSpan } from "./spans.ts";
 import { keptParts } from "./timeline.ts";
 import { formatTime, SETTING_FORMATS } from "./time.ts";
@@ -56,7 +56,18 @@ const isNumber = (value: unknown): value is number => typeof value === "number" 
 const roundTo = (value: number, places: number) => Math.round(value * 10 ** places) / 10 ** places;
 
 function sourceOf(document: MediaDocument) {
-  return document.source ?? refuse('There is no video yet; name one next to this file with { op: "source", file: "clip.mp4" }.');
+  return document.source ?? refuse('There is no video or photo yet; name one next to this file with { op: "source", file: "clip.mp4" }.');
+}
+
+const TIMED_OPERATIONS = ["trim", "untrim", "cut", "uncut", "speed", "volume", "clear"];
+
+/** A photo has no time: what needs some is refused. */
+function refuseTimeOnAPhoto(document: MediaDocument, operation: Record<string, unknown>) {
+  const file = document.source?.file;
+  if (!file || !isPhoto(file)) return;
+  if (TIMED_OPERATIONS.includes(operation.op as string)) refuse(`${file} is a photo: ${operation.op} works on a video's time.`);
+  if (operation.op === "exposure" && (operation.start !== undefined || operation.end !== undefined)) refuse(`${file} is a photo: its exposure is for all of it, without start and end.`);
+  if (operation.op === "mark" && ((operation.end ?? null) !== null || (operation.at ?? 0) !== 0)) refuse(`${file} is a photo: a mark on it takes a box and a note, no time.`);
 }
 
 /** A time in the source, refused when it is past the end the probe read. */
@@ -165,10 +176,11 @@ function changed(document: MediaDocument, fields: Partial<Restorable>, summary: 
 /** The document with the operation applied, what undoes it and what it did; an operation that doesn't fit throws why. */
 export function applyOperation(document: MediaDocument, operation: unknown): Applied {
   if (!isRecord(operation) || typeof operation.op !== "string") refuse(`An operation is an object with op, e.g. { op: "exposure", ev: 0.5 }.`);
+  refuseTimeOnAPhoto(document, operation);
   switch (operation.op) {
     case "source": {
       const { file } = operation;
-      if (typeof file !== "string" || file.trim() === "") refuse("source needs the video's file, relative to this file's folder.");
+      if (typeof file !== "string" || file.trim() === "") refuse("source needs the video's or photo's file, relative to this file's folder.");
       if (document.source?.file === file) refuse(`${file} is the video already.`);
       const dropped = document.marks.length > 0 || hasEdits(document.edits) ? `; the edits and marks of ${document.source?.file} are put aside, and undo brings them back` : "";
       return changed(document, { source: { file, probe: null }, edits: NO_EDITS, marks: [], rendered: null }, `Opened ${file}${dropped}.`, ["source"]);
@@ -220,14 +232,14 @@ export function applyOperation(document: MediaDocument, operation: unknown): App
       return changed(document, { edits: { ...document.edits, straighten } }, summary, ["edits.straighten"]);
     }
     case "mark": {
-      sourceOf(document);
-      const at = secondsIn(document, operation.at, "at");
+      const photo = isPhoto(sourceOf(document).file);
+      const at = secondsIn(document, operation.at ?? (photo ? 0 : undefined), "at");
       const end = operation.end === undefined || operation.end === null ? null : secondsIn(document, operation.end, "end");
       if (end !== null && end <= at) refuse("A range's end must come after its start.");
       if (typeof operation.note !== "string") refuse("A mark needs a note: what is wrong there.");
       const mark = { id: `m${document.nextMark}`, at, end, box: boxIn(document, operation.box), note: operation.note.trim(), done: false };
-      const where = `${describeWhen(mark)}${mark.box ? `, in the box ${describeBox(mark.box)}` : ""}`;
-      return changed(document, { marks: [...document.marks, mark], nextMark: document.nextMark + 1 }, `Marked ${mark.id} ${where}: ${mark.note}`, [`marks.${mark.id}`]);
+      const where = [photo ? null : describeWhen(mark), mark.box && `in the box ${describeBox(mark.box)}`].filter(Boolean).join(", ");
+      return changed(document, { marks: [...document.marks, mark], nextMark: document.nextMark + 1 }, `Marked ${mark.id}${where ? ` ${where}` : ""}: ${mark.note}`, [`marks.${mark.id}`]);
     }
     case "mark-done": {
       const mark = markOf(document, operation.mark);
@@ -243,7 +255,8 @@ export function applyOperation(document: MediaDocument, operation: unknown): App
     case "probed": {
       const source = sourceOf(document);
       const { probe } = operation as { probe: Probe };
-      const summary = `Read ${source.file}: ${isRecord(probe) ? `${probe.width}×${probe.height}, ${formatTime(probe.duration as number)}` : "?"}.`;
+      const length = isRecord(probe) && !isPhoto(source.file) ? `, ${formatTime(probe.duration)}` : "";
+      const summary = `Read ${source.file}: ${isRecord(probe) ? `${probe.width}×${probe.height}${length}` : "?"}.`;
       return changed(document, { source: { ...source, probe } }, summary, ["source"]);
     }
     case "rendered": {

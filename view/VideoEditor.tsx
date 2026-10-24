@@ -181,10 +181,11 @@ export function VideoEditor({ state }: { state: AppDocumentState<MediaDocument> 
       />
       {problem && <p className="problem">{problem}</p>}
       <Player
-        video={video}
+        picture={{ kind: "video", ref: video }}
         src={shown && "url" in shown ? shown.url : null}
         filter={filter}
         frameEdits={previewing ? edits : NO_EDITS}
+        sizing={{ even: true }}
         boxes={boxes}
         canDraw={mode !== "rendered" && !!probe}
         onBox={setBox}

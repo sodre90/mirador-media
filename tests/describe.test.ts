@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { describeDocument, describeEdits, OPERATIONS_HELP } from "../shared/describe.ts";
+import { describeDocument, describeEdits, OPERATIONS_HELP, PHOTO_OPERATIONS_HELP } from "../shared/describe.ts";
 import { newDocument, NO_EDITS, type MediaDocument } from "../shared/document.ts";
 import { markMessage } from "../shared/mark-message.ts";
 import { formatTime, frameAt, frameMiddle } from "../shared/time.ts";
@@ -7,8 +7,38 @@ import { formatTime, frameAt, frameMiddle } from "../shared/time.ts";
 const probe = { width: 1920, height: 1080, duration: 83.4, fps: 29.97, audio: true };
 
 describe("describeDocument", () => {
-  test("a document with no video tells the agent how to name one", () => {
-    expect(describeDocument(newDocument())).toStartWith('No video yet. Name the one to edit, next to this file, with { op: "source", file: "clip.mp4" }.');
+  test("a document with no video tells the agent how to name one, or a photo", () => {
+    expect(describeDocument(newDocument())).toStartWith('No video or photo yet. Name the one to edit, next to this file, with { op: "source", file: "clip.mp4" }; a photo is a .jpg, .png or .webp.');
+  });
+
+  test("names a photo and its size, its marks without a time, and only the operations a photo takes", () => {
+    const photo = { width: 4032, height: 3024, duration: 0, fps: 0, audio: false };
+    const document: MediaDocument = {
+      ...newDocument(),
+      source: { file: "IMG_1.JPG", probe: photo },
+      edits: { ...NO_EDITS, exposure: { clip: 0.5, ranges: [] }, turn: 90 },
+      marks: [{ id: "m1", at: 0, end: null, box: { x: 10, y: 20, width: 300, height: 200 }, note: "tilted", done: false }],
+      nextMark: 2,
+    };
+    expect(describeDocument(document)).toBe(
+      [
+        "Photo: IMG_1.JPG, 4032×3024.",
+        "Edits, which the user sees at once in the preview: exposure +0.50 EV; turned 90° clockwise. Its frame is 3024×4032.",
+        "Not rendered yet; app_run render writes IMG_1.edited.JPG.",
+        "Marks the user made, open first:\n- m1 box x 10, y 20, 300×200 px: tilted",
+        "When your edits are done, run app_run render: it writes IMG_1.edited.JPG next to the source, in place of the one before, and the user compares it with the source.",
+        PHOTO_OPERATIONS_HELP,
+      ].join("\n\n"),
+    );
+    expect(PHOTO_OPERATIONS_HELP).not.toMatch(/trim|speed|volume|at:/);
+    expect(describeDocument({ ...newDocument(), source: { file: "shot.png", probe: null } })).toStartWith("Photo: shot.png, not read yet; app_run probe reads its size.");
+  });
+
+  test("gives a photo's crop its exact size, where a video's is made even", () => {
+    const crop = { x: 0, y: 0, width: 201, height: 151 };
+    const framing = (file: string) => describeDocument({ ...newDocument(), source: { file, probe: { ...probe, fps: file.endsWith(".png") ? 0 : 30 } }, edits: { ...NO_EDITS, crop } });
+    expect(framing("shot.png")).toContain("Its frame is 201×151.");
+    expect(framing("clip.mp4")).toContain("Its frame is 200×150.");
   });
 
   test("names the video, the edits the user previews, how the render stands, the marks open first, and the operations", () => {
@@ -72,6 +102,16 @@ describe("markMessage", () => {
     expect(markMessage("clip.mp4", probe, mark, { exposure: 0, frame: NO_EDITS }, 12.5)).toBe(
       "In clip.mp4 from 0:10.00 to 0:12.50 (frames 299–374): music too loud\n\n(Mark m1. The picture is the frame at 0:12.50, as shot.)",
     );
+  });
+
+  test("says where on a photo, with no time, and that the picture is the whole photo", () => {
+    const photo = { width: 4032, height: 3024, duration: 0, fps: 0, audio: false };
+    const mark = { id: "m1", at: 0, end: null, box: { x: 10, y: 20, width: 300, height: 200 }, note: "sky too bright" };
+    expect(markMessage("IMG_1.JPG", photo, mark, { exposure: -1, frame: { ...NO_EDITS, turn: 90 } }, 0)).toBe(
+      "In IMG_1.JPG, in the box x 10, y 20, 300×200 px of the 4032×3024 photo: sky too bright\n\n" +
+        "(Mark m1. The picture is the photo with the box drawn on it in red, as the preview shows it, at exposure -1.00 EV. It is the whole frame, before the turn.)",
+    );
+    expect(markMessage("shot.png", photo, { ...mark, box: null }, { exposure: 0, frame: NO_EDITS }, 0)).toBe("In shot.png: sky too bright\n\n(Mark m1. The picture is the photo, as shot.)");
   });
 
   test("says the picture is the whole frame when the preview crops, straightens or turns it", () => {

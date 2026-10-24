@@ -82,7 +82,8 @@ button.link {
   position: absolute;
   overflow: hidden;
 }
-.frame video {
+.frame video,
+.frame img {
   position: absolute;
   left: 0;
   top: 0;

@@ -78,14 +78,19 @@ function quarterTurn(turn: Turn, { width, height }: Size): Affine {
 
 export const turnedSize = ({ width, height }: Size, turn: Turn): Size => (turn % 180 === 0 ? { width, height } : { width: height, height: width });
 
+/** Video encoders take even sizes only, so a video's frame is kept even; a photo's isn't. */
+export interface Sizing {
+  even: boolean;
+}
+
 /**
  * The frame the edits make of a picture of `source` size, as the render makes it, and the map from the source's pixels to
  * the frame's: the crop first, in the source's pixels, then the straightening about the crop's middle, zoomed in to fill
  * it, then the turn.
  */
-export function framed(source: Size, edits: FrameEdits): { size: Size; matrix: Affine } {
+export function framed(source: Size, edits: FrameEdits, sizing: Sizing): { size: Size; matrix: Affine } {
   const { turn, straighten } = edits;
-  const kept = edits.crop ? renderedCrop(source, edits) : { x: 0, y: 0, ...source };
+  const kept = edits.crop ? renderedCrop(source, edits, sizing) : { x: 0, y: 0, ...source };
   const [middleX, middleY] = [kept.width / 2, kept.height / 2];
   const cropping = moved(-kept.x, -kept.y);
   const straightening = straighten === 0 ? IDENTITY : [moved(-middleX, -middleY), turned(straighten), scaled(straightenZoom(kept, straighten)), moved(middleX, middleY)].reduce(then);
@@ -93,13 +98,13 @@ export function framed(source: Size, edits: FrameEdits): { size: Size; matrix: A
   return { size: turnedSize(kept, turn), matrix: [cropping, straightening, turning].reduce(then) };
 }
 
-/** Video encoders take even sizes only, so the render keeps the crop's even part, at least 2 pixels. */
+/** The crop's even part, at least 2 pixels. */
 export const evenDown = (pixels: number) => Math.max(2, Math.floor(pixels / 2) * 2);
 
-/** The part of the source the render keeps: the crop, or all of it, made even. */
-export function renderedCrop(source: Size, { crop }: FrameEdits): Box {
+/** The part of the source the render keeps: the crop, or all of it, made even for a video. */
+export function renderedCrop(source: Size, { crop }: FrameEdits, { even }: Sizing): Box {
   const kept = crop ?? { x: 0, y: 0, ...source };
-  return { x: kept.x, y: kept.y, width: evenDown(kept.width), height: evenDown(kept.height) };
+  return even ? { x: kept.x, y: kept.y, width: evenDown(kept.width), height: evenDown(kept.height) } : kept;
 }
 
 /** A box's corners, as a map puts them: a box stays a rectangle, tilted when straightened. */

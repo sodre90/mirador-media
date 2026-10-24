@@ -1,7 +1,7 @@
 # Media for Mirador
 
-A [Mirador](https://github.com/sodre90/mirador) app for editing a video with the agent. You show the agent what's wrong
-instead of describing it in words, and the agent changes it.
+A [Mirador](https://github.com/sodre90/mirador) app for editing a video or a photo with the agent. You show the agent
+what's wrong instead of describing it in words, and the agent changes it.
 
 - **Watch the video** in a canvas tab. Play it, scrub through it and step one frame at a time.
 - **Mark where:** a moment or a range, and maybe a box drawn on the frame. Type what's wrong there and send it. The agent
@@ -16,9 +16,13 @@ instead of describing it in words, and the agent changes it.
   `clip.mp4` (a WebM stays WebM). Each render replaces the previous one, and you compare the rendered file with the
   source in the pane, at the same moment of the video.
 - **Marks stay as notes** on the timeline. The agent ticks each one off when it has dealt with it.
+- **Photos too:** a JPEG, PNG or WebP opens the same way. You draw a box on it and send a note; the agent sets its
+  exposure, crops, straightens and turns it, and renders `photo.edited.jpg` in the photo's own format. A phone photo
+  shows upright, as its EXIF orientation says, in the pane and in the render alike. The render doesn't carry the photo's
+  EXIF over, such as when and where it was taken.
 
-The app's document is a `.media.json` file next to the video. Ask the agent something like "open clip.mp4 in the media
-app". It opens `clip.media.json` with `app_open` and names the video with `{ op: "source", file: "clip.mp4" }`.
+The app's document is a `.media.json` file next to the video or photo. Ask the agent something like "open clip.mp4 in
+the media app". It opens `clip.media.json` with `app_open` and names the video with `{ op: "source", file: "clip.mp4" }`.
 
 ## Install
 

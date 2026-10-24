@@ -19,7 +19,7 @@ export interface Source {
   probe: Probe | null;
 }
 
-/** The size is as the video is shown, a phone video's rotation taken into account. */
+/** The size is as the picture is shown, a phone's rotation taken into account. A photo lasts 0 s at 0 fps, silent. */
 export interface Probe {
   width: number;
   height: number;
@@ -165,15 +165,18 @@ function checkedEdits(value: unknown, where: string): Edits {
   return { trim: trim === null ? null : checkedSpan(trim, `${where}.trim`), cuts: checkedCuts, ...settings, crop: checkedBox(crop, `${where}.crop`), turn, straighten };
 }
 
+/** Photos the view shows in an img, and the render writes in their own format. */
+export const isPhoto = (file: string) => /\.(jpe?g|png|webp)$/i.test(file);
+
 function checkedSource(value: unknown): Source | null {
   if (value === null) return null;
-  check(isRecord(value) && typeof value.file === "string" && value.file !== "", "source needs the video's file");
+  check(isRecord(value) && typeof value.file === "string" && value.file !== "", "source needs the video's or photo's file");
   if (value.probe === null) return { file: value.file, probe: null };
   const probe = value.probe;
   check(isRecord(probe), "source.probe needs the video's size, duration, fps and audio");
   const { width, height, duration, fps, audio } = probe;
   check(isNumber(width) && isNumber(height) && width > 0 && height > 0, "source.probe needs a width and height above 0");
-  check(isNonNegative(duration) && isNumber(fps) && fps > 0 && typeof audio === "boolean", "source.probe needs a duration, an fps above 0 and whether it has sound");
+  check(isNonNegative(duration) && isNumber(fps) && (fps > 0 || isPhoto(value.file)) && typeof audio === "boolean", "source.probe needs a duration, an fps above 0 and whether it has sound");
   return { file: value.file, probe: { width, height, duration, fps, audio } };
 }
 
@@ -215,9 +218,12 @@ export const settingAt = ({ clip, ranges }: Setting, time: number) => ranges.fin
 
 export const changesSetting = (setting: Setting, name: SettingName) => setting.clip !== SETTINGS[name].asShot || setting.ranges.length > 0;
 
-/** The rendered file's name next to the source: clip.mp4 becomes clip.edited.mp4, and a WebM stays WebM so every browser plays it. */
+/**
+ * The rendered file's name next to the source: clip.mp4 becomes clip.edited.mp4, a WebM stays WebM so every browser plays
+ * it, and a photo keeps its format.
+ */
 export function renderedName(source: string) {
-  const extension = /\.webm$/i.test(source) ? ".webm" : ".mp4";
+  const extension = isPhoto(source) ? /\.[^./]+$/.exec(source)![0] : /\.webm$/i.test(source) ? ".webm" : ".mp4";
   const stem = source.replace(/\.[^./]+$/, "");
   return `${stem}.edited${extension}`;
 }

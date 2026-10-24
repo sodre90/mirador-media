@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { exposureFilter, frameFilters, probeFrom, progressSeconds, renderArguments } from "../host/ffmpeg.ts";
+import { exposureFilter, frameFilters, photoArguments, photoProbeFrom, probeFrom, progressSeconds, renderArguments } from "../host/ffmpeg.ts";
 import { NO_EDITS } from "../shared/document.ts";
 
 describe("renderArguments", () => {
@@ -57,10 +57,10 @@ describe("renderArguments", () => {
 
   test("crops to an even size, straightens zoomed in about the crop's middle, then turns, after the pieces are joined", () => {
     const edits = { ...NO_EDITS, crop: { x: 101, y: 50, width: 641, height: 361 }, straighten: -3, turn: 90 as const };
-    expect(frameFilters(probe, edits)).toEqual(["crop=640:360:101:50", "scale=700:394", "rotate=-0.052360:ow=640:oh=360", "transpose=clock"]);
-    expect(frameFilters(probe, { ...NO_EDITS, turn: 180 })).toEqual(["hflip", "vflip"]);
-    expect(frameFilters({ ...probe, width: 1919 }, NO_EDITS)).toEqual(["crop=1918:1080:0:0"]);
-    expect(frameFilters(probe, NO_EDITS)).toEqual([]);
+    expect(frameFilters(probe, edits, { even: true })).toEqual(["crop=640:360:101:50", "scale=700:394", "rotate=-0.052360:ow=640:oh=360", "transpose=clock"]);
+    expect(frameFilters(probe, { ...NO_EDITS, turn: 180 }, { even: true })).toEqual(["hflip", "vflip"]);
+    expect(frameFilters({ ...probe, width: 1919 }, NO_EDITS, { even: true })).toEqual(["crop=1918:1080:0:0"]);
+    expect(frameFilters(probe, NO_EDITS, { even: true })).toEqual([]);
     expect(filterGraph(renderArguments("/v/clip.mp4", "/v/out.mp4", { ...NO_EDITS, turn: 270 }, probe)).slice(-2)).toEqual([
       "[v0][a0]concat=n=1:v=1:a=1[joined][sound]",
       "[joined]transpose=cclock[picture]",
@@ -73,6 +73,34 @@ describe("renderArguments", () => {
 
   test("darkens by the same factor CSS brightness() uses", () => {
     expect(exposureFilter(-1)).toBe("lutrgb=r=val*0.500000:g=val*0.500000:b=val*0.500000");
+  });
+});
+
+describe("photoArguments", () => {
+  const photo = { width: 4031, height: 3023, duration: 0, fps: 0, audio: false };
+
+  test("brightens, crops to the pixel and turns one frame, written in the format the output names", () => {
+    const edits = { ...NO_EDITS, exposure: { clip: 1, ranges: [] }, crop: { x: 11, y: 0, width: 2001, height: 1501 }, turn: 270 as const };
+    const args = photoArguments("/p/IMG_1.JPG", "/p/.IMG_1.edited.rendering.JPG", edits, photo);
+    expect(args.slice(args.indexOf("-vf"), args.indexOf("-vf") + 2)).toEqual(["-vf", `${exposureFilter(1)},crop=2001:1501:11:0,transpose=cclock`]);
+    expect(args.slice(-7)).toEqual(["-frames:v", "1", "-update", "1", "-q:v", "2", "/p/.IMG_1.edited.rendering.JPG"]);
+    expect(photoArguments("/p/a.webp", "/p/out.webp", edits, photo)).toContain("libwebp");
+    expect(photoArguments("/p/a.png", "/p/out.png", edits, photo).slice(-5)).toEqual(["-frames:v", "1", "-update", "1", "/p/out.png"]);
+  });
+
+  test("leaves an odd-sized photo whole when nothing changes its frame", () => {
+    expect(photoArguments("/p/a.png", "/p/out.png", NO_EDITS, photo)).not.toContain("-vf");
+    expect(frameFilters(photo, NO_EDITS, { even: false })).toEqual([]);
+  });
+});
+
+describe("photoProbeFrom", () => {
+  test("reads a photo's size as shown, turned by the EXIF orientation on its first frame", () => {
+    const output = (rotation: number | null) =>
+      JSON.stringify({ frames: [{ media_type: "video", ...(rotation !== null && { side_data_list: [{ rotation }] }) }], streams: [{ codec_type: "video", width: 4032, height: 3024 }], format: { format_name: "jpeg_pipe" } });
+    expect(photoProbeFrom(output(null))).toEqual({ width: 4032, height: 3024, duration: 0, fps: 0, audio: false });
+    expect(photoProbeFrom(output(-90))).toMatchObject({ width: 3024, height: 4032 });
+    expect(() => photoProbeFrom(JSON.stringify({ streams: [] }))).toThrow("it isn't a picture ffmpeg can read");
   });
 });
 

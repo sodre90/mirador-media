@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { binaries, PROBE_ARGUMENTS, probeFrom, runProgram } from "../host/ffmpeg.ts";
+import { binaries, PHOTO_PROBE_ARGUMENTS, photoProbeFrom, PROBE_ARGUMENTS, probeFrom, runProgram } from "../host/ffmpeg.ts";
 import { probe, render } from "../host/tasks.ts";
 import type { AppTask, AppTaskContext } from "../mirador/api.ts";
 import { newDocument, type MediaDocument } from "../shared/document.ts";
@@ -67,9 +67,12 @@ const loudness = async (file: string, from: number, seconds: number) => {
   return Number(/mean_volume: (-?[\d.]+) dB/.exec(report)![1]);
 };
 
+/** A picture's size, as its first frame shows it. */
+const pictureSize = async (file: string) => photoProbeFrom(await runProgram(binaries.ffprobe, [...PHOTO_PROBE_ARGUMENTS, file], never));
+
 /** The middle of the bright pixels of a file's first frame, and the frame's size. */
 async function brightSpot(file: string) {
-  const { width, height } = await probed(file);
+  const { width, height } = await pictureSize(file);
   const decoded = Bun.spawn([binaries.ffmpeg!, "-hide_banner", "-loglevel", "error", "-i", file, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"]);
   const pixels = new Uint8Array(await new Response(decoded.stdout).arrayBuffer());
   const bright = [...pixels.keys()].filter((index) => pixels[index]! > 128).map((index) => ({ x: (index % width) + 0.5, y: Math.floor(index / width) + 0.5 }));
@@ -95,10 +98,59 @@ describe("the probe task", () => {
 
   test("says when there is no video, or the file isn't there", async () => {
     const folder = mkdtempSync(join(tmpdir(), "media-probe-"));
-    await expect(runTask(probe, newDocument(), folder)).rejects.toThrow("there is no video yet");
+    await expect(runTask(probe, newDocument(), folder)).rejects.toThrow("there is no video or photo yet");
     const missing = applyOperation(newDocument(), { op: "source", file: "gone.mp4" }).document;
     await expect(runTask(probe, missing, folder)).rejects.toThrow("gone.mp4 doesn't exist next to this file");
   });
+});
+
+/**
+ * A phone photo: 33×25 as stored, a white square at its top left on dark grey, with EXIF orientation 6, which turns it a
+ * quarter clockwise to show it 25×33. ffmpeg can't write EXIF, so it was made with Pillow:
+ * Image.new("RGB", (33, 25), (48, 48, 48)), the square drawn over [0, 0, 7, 7], saved at quality 95 with exif[0x0112] = 6.
+ */
+const PHONE_PHOTO = join(import.meta.dir, "fixtures", "turned.jpg");
+
+describe("a photo", () => {
+  test("is read at its size as shown, its EXIF orientation taken into account, and lasts no time", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "media-photo-"));
+    copyFileSync(PHONE_PHOTO, join(folder, "IMG_1.JPG"));
+    const { summary, document } = await runTask(probe, applyOperation(newDocument(), { op: "source", file: "IMG_1.JPG" }).document, folder);
+    expect(summary).toBe("IMG_1.JPG is 25×33.");
+    expect(document.source!.probe).toEqual({ width: 25, height: 33, duration: 0, fps: 0, audio: false });
+  });
+
+  test("renders its exposure, its crop to the pixel and its turn into the same format, turned upright as browsers show it", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "media-photo-"));
+    copyFileSync(PHONE_PHOTO, join(folder, "IMG_1.JPG"));
+    const edits = { crop: { x: 3, y: 0, width: 21, height: 15 }, turn: 90 as const, straighten: 0 };
+    const operations = [{ op: "source", file: "IMG_1.JPG" }, { op: "exposure", ev: 1 }, { op: "crop", ...edits.crop }, { op: "turn", degrees: edits.turn }];
+    const document = operations.reduce((edited, operation) => applyOperation(edited, operation).document, newDocument());
+    const { summary } = await runTask(render, document, folder);
+    expect(summary).toMatch(/^Rendered IMG_1\.edited\.JPG \(edits: exposure \+1\.00 EV; crop x 3, y 0, 21×15 px; turned 90° clockwise\) in \d+ s; the user can compare it with IMG_1\.JPG in the app\.$/);
+    expect(readdirSync(folder).sort()).toEqual(["IMG_1.JPG", "IMG_1.edited.JPG"]);
+    const rendered = join(folder, "IMG_1.edited.JPG");
+    const { size, matrix } = framed({ width: 25, height: 33 }, edits, { even: false });
+    expect(size).toEqual({ width: 15, height: 21 });
+    const spot = await brightSpot(rendered);
+    expect({ width: spot.width, height: spot.height }).toEqual(size);
+    const expected = mapped(matrix, { x: 20.5, y: 4 });
+    expect(Math.hypot(spot.x - expected.x, spot.y - expected.y)).toBeLessThan(1);
+    expect(Math.abs((await firstPixel(rendered))[0]! - 96)).toBeLessThanOrEqual(8);
+  }, 60_000);
+
+  test("keeps a PNG as PNG and a WebP as WebP", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "media-photo-"));
+    for (const name of ["shot.png", "shot.webp"]) {
+      await runProgram(binaries.ffmpeg, ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=0x404040:s=32x18,format=rgb24,crop=31:17:0:0", "-frames:v", "1", join(folder, name)], never);
+      const document = [{ op: "source", file: name }, { op: "exposure", ev: 1 }].reduce((edited, operation) => applyOperation(edited, operation).document, newDocument());
+      await runTask(render, document, folder);
+      const output = join(folder, name.replace(".", ".edited."));
+      const codec = await runProgram(binaries.ffprobe, ["-v", "error", "-show_entries", "stream=codec_name", "-of", "csv=p=0", output], never);
+      expect([codec.trim(), await pictureSize(output)]).toEqual([name.endsWith(".png") ? "png" : "webp", { width: 31, height: 17, duration: 0, fps: 0, audio: false }]);
+      expect(Math.abs((await firstPixel(output))[0]! - 128)).toBeLessThanOrEqual(4);
+    }
+  }, 60_000);
 });
 
 describe("the render task", () => {
@@ -163,7 +215,7 @@ describe("the render task", () => {
     const document = operations.reduce((edited, operation) => applyOperation(edited, operation).document, newDocument());
     await runTask(render, document, folder);
     const spot = await brightSpot(join(folder, "clip.edited.webm"));
-    const { size, matrix } = framed({ width: 320, height: 240 }, edits);
+    const { size, matrix } = framed({ width: 320, height: 240 }, edits, { even: true });
     const expected = mapped(matrix, { x: 204, y: 74 });
     expect({ width: spot.width, height: spot.height }).toEqual(size);
     expect(size).toEqual({ width: 160, height: 200 });

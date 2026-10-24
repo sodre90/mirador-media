@@ -74,14 +74,6 @@ async function startWithTheAgent(page: Page) {
   return conversation;
 }
 
-/** Mirador's canvas brings an app forward when it first opens in the workspace, not when the agent opens another file in it. */
-async function showTheApp(page: Page) {
-  const toggle = page.locator(".canvas-panel:visible .app-toggle", { hasText: "Media" });
-  await expect(toggle).toBeVisible();
-  if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click();
-  await expect(toggle).toHaveAttribute("aria-pressed", "true");
-}
-
 /** Drags across the frame between two points given as fractions of it, as the user draws a box. */
 async function drawBox(page: Page, from: [number, number], to: [number, number]) {
   const frame = (await view(page).locator(".frame").boundingBox())!;
@@ -294,7 +286,7 @@ test("mark a box on a photo and send 'sky too bright'; the agent brightens, crop
   await test.step("the agent opens the photo, which shows without time", async () => {
     expect(await mirador.callCanvasTool(host, conversation, "app_open", { app: "media", file: "photo.media.json" })).toContain("No video or photo yet.");
     expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "source", file: "photo.jpg" } })).toBe("Opened photo.jpg.");
-    await showTheApp(page);
+    await expect(page.locator(".canvas-panel:visible .app-toggle", { hasText: "Media" })).toHaveAttribute("aria-pressed", "true");
     await expect(view(page).locator(".facts")).toHaveText("320×240");
     expect(await mirador.callCanvasTool(host, conversation, "app_state", {})).toContain("Photo: photo.jpg, 320×240.");
     await expect(view(page).locator(".frame img")).toBeVisible();

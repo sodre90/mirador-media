@@ -33,14 +33,39 @@ export interface Span {
   end: number;
 }
 
+/** A part of the source where a setting has a value of its own. */
+export interface Ranged extends Span {
+  value: number;
+}
+
+/** A setting's value for the whole clip, and the parts, in order and none overlapping, where a value of their own replaces it. */
+export interface Setting {
+  clip: number;
+  ranges: Ranged[];
+}
+
 export interface Edits {
   /** The part of the source to keep. */
   trim: Span | null;
   /** Parts taken out of what the trim keeps, in order, none overlapping. */
   cuts: Span[];
-  /** Stops brighter or darker, from -3 to 3; 0 is as shot. */
-  exposure: number;
+  /** Stops brighter, or darker below 0. */
+  exposure: Setting;
+  /** How many times as fast as shot it plays. */
+  speed: Setting;
+  /** How many times as loud as recorded; 0 is muted. */
+  volume: Setting;
 }
+
+export type SettingName = "exposure" | "speed" | "volume";
+
+export const SETTINGS: Record<SettingName, { least: number; most: number; asShot: number }> = {
+  exposure: { least: -3, most: 3, asShot: 0 },
+  speed: { least: 0.25, most: 4, asShot: 1 },
+  volume: { least: 0, most: 4, asShot: 1 },
+};
+
+export const SETTING_NAMES = Object.keys(SETTINGS) as SettingName[];
 
 /** A rectangle of the frame, in the source's pixels. */
 export interface Box {
@@ -69,9 +94,9 @@ export interface Rendered {
   at: number;
 }
 
-export const MAX_EXPOSURE = 3;
+const asShot = (name: SettingName): Setting => ({ clip: SETTINGS[name].asShot, ranges: [] });
 
-export const NO_EDITS: Edits = { trim: null, cuts: [], exposure: 0 };
+export const NO_EDITS: Edits = { trim: null, cuts: [], exposure: asShot("exposure"), speed: asShot("speed"), volume: asShot("volume") };
 
 export const newDocument = (): MediaDocument => ({ version: 1, source: null, edits: NO_EDITS, marks: [], nextMark: 1, rendered: null });
 
@@ -98,15 +123,35 @@ function checkedSpan(value: unknown, where: string): Span {
   return { start: value.start, end: value.end };
 }
 
-/** Edits from before a field existed read as that field left as shot. */
+const inOrder = (spans: Span[]) => spans.every((span, index) => index === 0 || span.start >= spans[index - 1]!.end);
+
+function checkedSetting(value: unknown, name: SettingName, where: string): Setting {
+  const { least, most } = SETTINGS[name];
+  const allowed = (number: unknown): number is number => isNumber(number) && number >= least && number <= most;
+  const problem = `${where}.${name} must be from ${least} to ${most}`;
+  if (isNumber(value)) {
+    check(allowed(value), problem);
+    return { clip: value, ranges: [] };
+  }
+  check(isRecord(value) && allowed(value.clip) && Array.isArray(value.ranges), `${where}.${name} needs its clip value, ${least} to ${most}, and its ranges`);
+  const ranges = value.ranges.map((range, index) => {
+    const span = checkedSpan(range, `${where}.${name}.ranges[${index}]`);
+    check(allowed((range as Ranged).value), `${problem}, in its ranges too`);
+    return { ...span, value: (range as Ranged).value };
+  });
+  check(inOrder(ranges), `${where}.${name}: its ranges must be in order, none overlapping`);
+  return { clip: value.clip, ranges };
+}
+
+/** Edits from before a field existed read as that field left as shot, and a setting that was one number as that clip value. */
 function checkedEdits(value: unknown, where: string): Edits {
   check(isRecord(value), `${where} needs trim and exposure`);
-  const { trim = null, cuts = [], exposure } = value;
-  check(isNumber(exposure) && Math.abs(exposure) <= MAX_EXPOSURE, `${where}: exposure must be a number from -${MAX_EXPOSURE} to ${MAX_EXPOSURE}`);
+  const { trim = null, cuts = [] } = value;
   check(Array.isArray(cuts), `${where}: cuts must be a list`);
   const checkedCuts = cuts.map((cut, index) => checkedSpan(cut, `${where}.cuts[${index}]`));
-  check(checkedCuts.every((cut, index) => index === 0 || cut.start > checkedCuts[index - 1]!.end), `${where}: cuts must be in order, none overlapping`);
-  return { trim: trim === null ? null : checkedSpan(trim, `${where}.trim`), cuts: checkedCuts, exposure };
+  check(inOrder(checkedCuts), `${where}: cuts must be in order, none overlapping`);
+  const settings = Object.fromEntries(SETTING_NAMES.map((name) => [name, value[name] === undefined ? asShot(name) : checkedSetting(value[name], name, where)])) as Record<SettingName, Setting>;
+  return { trim: trim === null ? null : checkedSpan(trim, `${where}.trim`), cuts: checkedCuts, ...settings };
 }
 
 function checkedSource(value: unknown): Source | null {
@@ -153,6 +198,11 @@ export function checkedDocument(value: unknown): MediaDocument {
 export const sameEdits = (a: Edits, b: Edits) => JSON.stringify(checkedEdits(a, "edits")) === JSON.stringify(checkedEdits(b, "edits"));
 
 export const hasEdits = (edits: Edits) => !sameEdits(edits, NO_EDITS);
+
+/** The value a setting has at a moment of the source. */
+export const settingAt = ({ clip, ranges }: Setting, time: number) => ranges.find(({ start, end }) => time >= start && time < end)?.value ?? clip;
+
+export const changesSetting = (setting: Setting, name: SettingName) => setting.clip !== SETTINGS[name].asShot || setting.ranges.length > 0;
 
 /** The rendered file's name next to the source: clip.mp4 becomes clip.edited.mp4, and a WebM stays WebM so every browser plays it. */
 export function renderedName(source: string) {

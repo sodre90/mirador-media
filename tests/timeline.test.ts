@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { NO_EDITS } from "../shared/document.ts";
 import { painted, remainingOf, withoutSpan, withSpan } from "../shared/spans.ts";
-import { keptMoment, keptPieces, resultLength, resultTime, sourceTime } from "../shared/timeline.ts";
+import { keptMoment, keptParts, keptPieces, resultLength, resultTime, sourceTime } from "../shared/timeline.ts";
 
 describe("painted", () => {
   const speeds = [
@@ -41,15 +41,40 @@ describe("painted", () => {
 });
 
 describe("the timeline of the result", () => {
-  const pieces = keptPieces({ ...NO_EDITS, trim: { start: 30, end: 42 }, cuts: [{ start: 33, end: 35 }] }, 45);
+  const edits = { ...NO_EDITS, trim: { start: 30, end: 42 }, cuts: [{ start: 33, end: 35 }] };
+  const pieces = keptPieces(edits, 45);
+  const asShot = { exposure: 0, speed: 1, volume: 1 };
 
   test("is made of what the trim keeps, less the cuts", () => {
-    expect(pieces).toEqual([
+    expect(keptParts(edits, 45)).toEqual([
       { start: 30, end: 33 },
       { start: 35, end: 42 },
     ]);
+    expect(pieces).toEqual([
+      { start: 30, end: 33, ...asShot },
+      { start: 35, end: 42, ...asShot },
+    ]);
     expect(resultLength(pieces)).toBe(10);
-    expect(keptPieces(NO_EDITS, 45)).toEqual([{ start: 0, end: 45 }]);
+    expect(keptPieces(NO_EDITS, 45)).toEqual([{ start: 0, end: 45, ...asShot }]);
+  });
+
+  test("splits a kept part where a setting's range starts or ends, and plays a piece as fast as its speed", () => {
+    const slowed = {
+      ...edits,
+      speed: { clip: 1, ranges: [{ start: 35, end: 36, value: 0.5 }] },
+      volume: { clip: 1, ranges: [{ start: 38, end: 50, value: 0 }] },
+      exposure: { clip: 1, ranges: [{ start: 0, end: 31, value: 1 }] },
+    };
+    const split = keptPieces(slowed, 45);
+    expect(split).toEqual([
+      { start: 30, end: 33, ...asShot, exposure: 1 },
+      { start: 35, end: 36, ...asShot, exposure: 1, speed: 0.5 },
+      { start: 36, end: 38, ...asShot, exposure: 1 },
+      { start: 38, end: 42, ...asShot, exposure: 1, volume: 0 },
+    ]);
+    expect(resultLength(split)).toBe(11);
+    expect([35.5, 36, 38].map((time) => resultTime(split, time))).toEqual([4, 5, 7]);
+    expect([4, 5, 7].map((time) => sourceTime(split, time))).toEqual([35.5, 36, 38]);
   });
 
   test("maps a moment of the source to the result and back, a cut moment to where the result goes on", () => {

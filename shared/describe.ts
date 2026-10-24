@@ -1,13 +1,16 @@
-import { hasEdits, renderedName, sameEdits, type Edits, type MediaDocument, type Mark } from "./document.ts";
+import { changesSetting, hasEdits, renderedName, sameEdits, SETTING_NAMES, SETTINGS, type Edits, type MediaDocument, type Mark, type SettingName } from "./document.ts";
 import { describeBox, describeSpan, describeWhen } from "./operations.ts";
-import { keptPieces, resultLength } from "./timeline.ts";
-import { formatExposure, formatFps, formatTime } from "./time.ts";
+import { keptParts, keptPieces, resultLength } from "./timeline.ts";
+import { formatFps, formatTime, SETTING_FORMATS } from "./time.ts";
 
 export const OPERATIONS_HELP = `Operations (times in seconds into the source, boxes in the source's pixels):
 - { op: "source", file: "clip.mp4" }: the video, relative to this file's folder
 - { op: "trim", start: 5, end: 44 } keeps that part; { op: "untrim" } keeps all of it
 - { op: "cut", start: 12, end: 15 } takes that part out; { op: "uncut", start: 12, end: 15 } puts it back
 - { op: "exposure", ev: 0.5 }: stops brighter, or darker below 0, from -3 to 3; 0 is as shot
+- { op: "speed", rate: 0.5 }: times as fast, from 0.25 to 4; 1 is as shot, and the sound keeps its pitch
+- { op: "volume", level: 0.5 }: times as loud, from 0 (muted) to 4; 1 is as recorded
+- Exposure, speed and volume take start and end too, to set that part only: its value replaces the clip's there. { op: "clear", edit: "speed", start?, end? } takes such parts off again
 - { op: "mark-done", mark: "m1" } once you dealt with a mark; done: false opens it again
 - { op: "mark", at: 39.2, end?: 44, box?: { x, y, width, height }, note: "…" }, { op: "remove-mark", mark: "m1" }`;
 
@@ -15,8 +18,17 @@ export function describeEdits(edits: Edits) {
   if (!hasEdits(edits)) return "none";
   const trim = edits.trim && `trim ${describeSpan(edits.trim)}`;
   const cuts = edits.cuts.length > 0 && `cut ${edits.cuts.map(describeSpan).join(", ")}`;
-  const exposure = edits.exposure !== 0 && `exposure ${formatExposure(edits.exposure)}`;
-  return [trim, cuts, exposure].filter(Boolean).join("; ");
+  return [trim, cuts, ...SETTING_NAMES.map((name) => describeSetting(edits, name))].filter(Boolean).join("; ");
+}
+
+/** The clip's value when it isn't as shot, then each range's: "exposure +1.00 EV, +2.00 EV from 0:40.00 to 0:42.00". */
+function describeSetting(edits: Edits, name: SettingName) {
+  const setting = edits[name];
+  if (!changesSetting(setting, name)) return false;
+  const format = SETTING_FORMATS[name];
+  const clip = setting.clip !== SETTINGS[name].asShot ? [format(setting.clip)] : [];
+  const ranges = setting.ranges.map(({ start, end, value }) => `${format(value)} from ${formatTime(start)} to ${formatTime(end)}`);
+  return `${name} ${[...clip, ...ranges].join(", ")}`;
 }
 
 const describeMark = (mark: Mark) => `- ${mark.id} ${describeWhen(mark)}${mark.box ? `, box ${describeBox(mark.box)}` : ""}: ${mark.note || "(no note)"}${mark.done ? " (done)" : ""}`;
@@ -30,9 +42,9 @@ function describeSource(document: MediaDocument) {
 }
 
 function describeResultLength({ source, edits }: MediaDocument) {
-  if (!source?.probe || (!edits.trim && edits.cuts.length === 0)) return "";
-  const pieces = keptPieces(edits, source.probe.duration);
-  return ` The result is ${formatTime(resultLength(pieces))} long${pieces.length > 1 ? `, in ${pieces.length} pieces` : ""}.`;
+  if (!source?.probe || (!edits.trim && edits.cuts.length === 0 && !changesSetting(edits.speed, "speed"))) return "";
+  const parts = keptParts(edits, source.probe.duration);
+  return ` The result is ${formatTime(resultLength(keptPieces(edits, source.probe.duration)))} long${parts.length > 1 ? `, in ${parts.length} pieces` : ""}.`;
 }
 
 function describeRendered(document: MediaDocument) {

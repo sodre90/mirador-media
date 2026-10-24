@@ -1,23 +1,27 @@
 import { useRef, type PointerEvent } from "react";
-import type { Mark } from "../shared/document.ts";
+import { SETTING_NAMES, type Edits, type Mark, type Span } from "../shared/document.ts";
 import { describeSpan } from "../shared/operations.ts";
-import type { Piece } from "../shared/timeline.ts";
-import { formatTime } from "../shared/time.ts";
+import { formatTime, SETTING_FORMATS } from "../shared/time.ts";
 
 const percent = (seconds: number, duration: number) => `${(Math.min(duration, Math.max(0, seconds)) / duration) * 100}%`;
 
-/** The whole length: the pieces a trim and cuts keep, the marks, and where the video is; pressing or dragging on it seeks. */
+/**
+ * The whole length: the parts a trim and cuts keep, the ranges with a setting of their own, the marks, and where the
+ * video is; pressing or dragging on it seeks.
+ */
 export function Timeline({
   duration,
   time,
   kept,
+  settings,
   marks,
   rangeStart,
   onSeek,
 }: {
   duration: number;
   time: number;
-  kept: Piece[] | null;
+  kept: Span[] | null;
+  settings: Edits | null;
   marks: Mark[];
   rangeStart: number | null;
   onSeek: (seconds: number) => void;
@@ -47,6 +51,17 @@ export function Timeline({
       {kept?.map((piece) => (
         <div key={piece.start} className="kept" style={{ left: percent(piece.start, duration), width: percent(piece.end - piece.start, duration) }} title={`Kept: ${describeSpan(piece)}`} />
       ))}
+      {settings &&
+        SETTING_NAMES.flatMap((name) =>
+          settings[name].ranges.map((range) => (
+            <div
+              key={`${name} ${range.start}`}
+              className={`setting ${name}`}
+              style={{ left: percent(range.start, duration), width: percent(range.end - range.start, duration) }}
+              title={`${name} ${SETTING_FORMATS[name](range.value)}: ${describeSpan(range)}`}
+            />
+          )),
+        )}
       {rangeStart !== null && (
         <div className="range" style={{ left: percent(Math.min(rangeStart, time), duration), width: percent(Math.abs(time - rangeStart), duration) }} />
       )}

@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AppDocumentState, AppTaskState } from "../mirador/api.ts";
 import { describeEdits } from "../shared/describe.ts";
-import { hasEdits, NO_EDITS, renderedName, sameEdits, type Box, type MediaDocument, type Probe } from "../shared/document.ts";
+import { changesSetting, hasEdits, NO_EDITS, renderedName, sameEdits, type Box, type MediaDocument, type Probe } from "../shared/document.ts";
 import { markMessage } from "../shared/mark-message.ts";
 import { applyOperation, describeWhen } from "../shared/operations.ts";
 import { formatTime, frameAt, frameMiddle } from "../shared/time.ts";
-import { keptMoment, keptPieces, resultTime, sourceTime } from "../shared/timeline.ts";
+import { keptMoment, keptParts, keptPieces, looksAt, resultTime, sourceTime } from "../shared/timeline.ts";
 import { capturedFrame, exposurePreview } from "./frame.ts";
 import { usePlayhead } from "./playhead.ts";
+import { useSoundLevel } from "./sound.ts";
 import { Player, type ShownBox } from "./Player.tsx";
 import { Timeline } from "./Timeline.tsx";
 
@@ -180,8 +181,8 @@ export function App({ state }: { state: AppDocumentState<MediaDocument> }) {
   const shown = mode === "rendered" ? renderedUrl : sourceUrl;
   const previewing = mode === "preview";
   const { edits } = document;
-  const editedPieces = useMemo(() => (probe && (edits.trim || edits.cuts.length > 0) ? keptPieces(edits, probe.duration) : null), [edits, probe]);
-  const pieces = previewing ? editedPieces : null;
+  const editedParts = useMemo(() => (probe && (edits.trim || edits.cuts.length > 0) ? keptParts(edits, probe.duration) : null), [edits, probe]);
+  const pieces = previewing ? editedParts : null;
 
   const playOnlyKeptPieces = useCallback(
     (time: number) => {
@@ -255,8 +256,13 @@ export function App({ state }: { state: AppDocumentState<MediaDocument> }) {
     return () => removeEventListener("keydown", keys);
   });
 
-  const filter = previewing ? exposurePreview(document.edits.exposure) : "none";
-  const shownEdits = previewing ? document.edits : NO_EDITS;
+  const looks = looksAt(previewing ? edits : NO_EDITS, time);
+  const filter = exposurePreview(looks.exposure);
+  useSoundLevel(video, looks.volume, changesSetting(edits.volume, "volume"), playhead.playing);
+  useEffect(() => {
+    const element = video.current;
+    if (element) element.playbackRate = element.defaultPlaybackRate = looks.speed;
+  }, [looks.speed, shown]);
 
   const send = async (note: string) => {
     if (!probe || !document.source || !video.current) throw new Error("The video isn't read yet.");
@@ -265,7 +271,7 @@ export function App({ state }: { state: AppDocumentState<MediaDocument> }) {
     const mark = applyOperation(document, operation).document.marks.at(-1)!;
     const frame = await capturedFrame(video.current, probe, filter, mark.box);
     window.mirador.apply(operation);
-    await window.mirador.prompt(markMessage(document.source.file, probe, mark, shownEdits, video.current.currentTime), { images: [frame] });
+    await window.mirador.prompt(markMessage(document.source.file, probe, mark, looks.exposure, video.current.currentTime), { images: [frame] });
     setBox(null);
     setRangeStart(null);
     return mark.id;
@@ -326,7 +332,8 @@ export function App({ state }: { state: AppDocumentState<MediaDocument> }) {
         <Timeline
           duration={playhead.duration}
           time={time}
-          kept={mode === "rendered" ? null : editedPieces}
+          kept={mode === "rendered" ? null : editedParts}
+          settings={mode === "rendered" ? null : edits}
           marks={mode === "rendered" ? [] : document.marks}
           rangeStart={rangeStart}
           onSeek={(seconds) => seek(seconds)}

@@ -141,6 +141,23 @@ button.link {
   bottom: 0;
   background: color-mix(in srgb, var(--mark) 25%, transparent);
 }
+.timeline .setting {
+  position: absolute;
+  bottom: 0;
+  height: 4px;
+  border-radius: 2px;
+}
+.timeline .setting.exposure {
+  background: light-dark(#c98a00, #ffc53d);
+}
+.timeline .setting.speed {
+  background: light-dark(#1f8a4c, #4cd685);
+  bottom: 4px;
+}
+.timeline .setting.volume {
+  background: light-dark(#7a4bd1, #b18cff);
+  bottom: 8px;
+}
 .timeline .tick {
   position: absolute;
   top: 3px;

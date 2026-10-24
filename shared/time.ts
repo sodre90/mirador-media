@@ -1,3 +1,5 @@
+import type { SettingName } from "./document.ts";
+
 const twoDigits = (value: number) => String(value).padStart(2, "0");
 
 /** Seconds as a video player shows them, to the hundredth: 39.2 is 0:39.20, 3723.5 is 1:02:03.50. */
@@ -18,3 +20,11 @@ export const formatFps = (fps: number) => String(Math.round(fps * 100) / 100);
 
 /** A signed number of stops, as photographers write it: +0.50 EV, -1.00 EV. */
 export const formatExposure = (ev: number) => `${ev > 0 ? "+" : ""}${ev.toFixed(2)} EV`;
+
+/** A speed as a multiple: 0.5×, 2×. */
+export const formatSpeed = (rate: number) => `${Math.round(rate * 1000) / 1000}×`;
+
+/** A volume as a share of the sound as recorded: 50%, 200%, 0% (muted). */
+export const formatVolume = (level: number) => `${Math.round(level * 100)}%${level === 0 ? " (muted)" : ""}`;
+
+export const SETTING_FORMATS: Record<SettingName, (value: number) => string> = { exposure: formatExposure, speed: formatSpeed, volume: formatVolume };

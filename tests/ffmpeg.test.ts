@@ -7,15 +7,14 @@ describe("renderArguments", () => {
   const filterGraph = (args: string[]) => args[args.indexOf("-filter_complex") + 1]!.split(";");
 
   test("reads from the first kept piece to the end of the last, takes each with its sound and joins them, and brightens", () => {
-    const args = renderArguments("/v/clip.mp4", "/v/.clip.edited.rendering.mp4", { trim: { start: 5, end: 44 }, cuts: [{ start: 12, end: 15.5 }], exposure: 1 }, probe);
+    const args = renderArguments("/v/clip.mp4", "/v/.clip.edited.rendering.mp4", { ...NO_EDITS, trim: { start: 5, end: 44 }, cuts: [{ start: 12, end: 15.5 }], exposure: { clip: 1, ranges: [] } }, probe);
     expect(args.slice(args.indexOf("-ss"), args.indexOf("-i") + 2)).toEqual(["-ss", "5", "-t", "39", "-i", "/v/clip.mp4"]);
     expect(filterGraph(args)).toEqual([
-      "[0:v]trim=start=0:end=7,setpts=PTS-STARTPTS[v0]",
+      "[0:v]trim=start=0:end=7,setpts=PTS-STARTPTS,lutrgb=r=val*2.000000:g=val*2.000000:b=val*2.000000,format=yuv420p[v0]",
       "[0:a]atrim=start=0:end=7,asetpts=PTS-STARTPTS[a0]",
-      "[0:v]trim=start=10.5:end=39,setpts=PTS-STARTPTS[v1]",
+      "[0:v]trim=start=10.5:end=39,setpts=PTS-STARTPTS,lutrgb=r=val*2.000000:g=val*2.000000:b=val*2.000000,format=yuv420p[v1]",
       "[0:a]atrim=start=10.5:end=39,asetpts=PTS-STARTPTS[a1]",
-      "[v0][a0][v1][a1]concat=n=2:v=1:a=1[joined][sound]",
-      "[joined]lutrgb=r=val*2.000000:g=val*2.000000:b=val*2.000000,format=yuv420p[picture]",
+      "[v0][a0][v1][a1]concat=n=2:v=1:a=1[picture][sound]",
     ]);
     expect(args.join(" ")).toContain("-map [picture] -c:v libx264 -preset veryfast -crf 18 -map [sound] -c:a aac");
     expect(args.slice(args.indexOf("-movflags"), args.indexOf("-movflags") + 2)).toEqual(["-movflags", "+faststart"]);
@@ -25,10 +24,35 @@ describe("renderArguments", () => {
   test("keeps all of a silent video when nothing is trimmed or cut, leaves the colours be at 0 EV, and writes VP9 for a WebM", () => {
     const args = renderArguments("/v/clip.webm", "/v/out.webm", NO_EDITS, { ...probe, audio: false });
     expect(args.slice(args.indexOf("-ss"), args.indexOf("-i"))).toEqual(["-ss", "0", "-t", "83.4"]);
-    expect(filterGraph(args)).toEqual(["[0:v]trim=start=0:end=83.4,setpts=PTS-STARTPTS[v0]", "[v0]concat=n=1:v=1:a=0[joined]", "[joined]format=yuv420p[picture]"]);
+    expect(filterGraph(args)).toEqual(["[0:v]trim=start=0:end=83.4,setpts=PTS-STARTPTS,format=yuv420p[v0]", "[v0]concat=n=1:v=1:a=0[picture]"]);
     expect(args).toContain("libvpx-vp9");
     expect(args).not.toContain("[sound]");
     expect(args).not.toContain("-movflags");
+  });
+
+  test("gives each piece its own speed, keeping the sound's pitch, its own volume and its own exposure", () => {
+    const edits = {
+      ...NO_EDITS,
+      speed: { clip: 1, ranges: [{ start: 10, end: 12, value: 0.25 }, { start: 20, end: 30, value: 2 }] },
+      volume: { clip: 1, ranges: [{ start: 25, end: 40, value: 0 }] },
+      exposure: { clip: 0, ranges: [{ start: 10, end: 12, value: -1 }] },
+    };
+    const graph = filterGraph(renderArguments("/v/clip.mp4", "/v/out.mp4", { ...edits, trim: { start: 5, end: 40 } }, probe));
+    expect(graph).toEqual([
+      "[0:v]trim=start=0:end=5,setpts=PTS-STARTPTS,format=yuv420p[v0]",
+      "[0:a]atrim=start=0:end=5,asetpts=PTS-STARTPTS[a0]",
+      "[0:v]trim=start=5:end=7,setpts=(PTS-STARTPTS)/0.25,fps=29.97,lutrgb=r=val*0.500000:g=val*0.500000:b=val*0.500000,format=yuv420p[v1]",
+      "[0:a]atrim=start=5:end=7,asetpts=PTS-STARTPTS,atempo=0.500000,atempo=0.500000[a1]",
+      "[0:v]trim=start=7:end=15,setpts=PTS-STARTPTS,format=yuv420p[v2]",
+      "[0:a]atrim=start=7:end=15,asetpts=PTS-STARTPTS[a2]",
+      "[0:v]trim=start=15:end=20,setpts=(PTS-STARTPTS)/2,fps=29.97,format=yuv420p[v3]",
+      "[0:a]atrim=start=15:end=20,asetpts=PTS-STARTPTS,atempo=2[a3]",
+      "[0:v]trim=start=20:end=25,setpts=(PTS-STARTPTS)/2,fps=29.97,format=yuv420p[v4]",
+      "[0:a]atrim=start=20:end=25,asetpts=PTS-STARTPTS,atempo=2,volume=0[a4]",
+      "[0:v]trim=start=25:end=35,setpts=PTS-STARTPTS,format=yuv420p[v5]",
+      "[0:a]atrim=start=25:end=35,asetpts=PTS-STARTPTS,volume=0[a5]",
+      "[v0][a0][v1][a1][v2][a2][v3][a3][v4][a4][v5][a5]concat=n=6:v=1:a=1[picture][sound]",
+    ]);
   });
 
   test("refuses edits that leave nothing", () => {

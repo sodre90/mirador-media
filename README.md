@@ -6,12 +6,13 @@ instead of describing it in words, and the agent changes it.
 - **Watch the video** in a canvas tab. Play it, scrub through it and step one frame at a time.
 - **Mark where:** a moment or a range, and maybe a box drawn on the frame. Type what's wrong there and send it. The agent
   gets the file, the time and frame number, the box in the source's pixels, and the frame itself with the box drawn on it.
-- **The agent edits** with operations: trim, cut a part out, and exposure for now. The source file stays as it was. The
-  edits are a list in the app's document, and every one can be undone.
-- **The pane previews edits at once:** playback keeps to what the trim and the cuts keep, and exposure brightens the
-  picture. When its edits are done, the agent renders them into `clip.edited.mp4` next to `clip.mp4` (a WebM stays
-  WebM). Each render replaces the previous one, and you compare the rendered file with the source in the pane, at the
-  same moment of the video.
+- **The agent edits** with operations: trim, cut a part out, and set the exposure, speed and volume, for the whole clip
+  or for a range, whose value then replaces the clip's there. The source file stays as it was. The edits are a list in
+  the app's document, and every one can be undone.
+- **The pane previews edits at once:** playback keeps to what the trim and the cuts keep, at each range's speed, as bright
+  and as loud as it is set there. When its edits are done, the agent renders them into `clip.edited.mp4` next to
+  `clip.mp4` (a WebM stays WebM). Each render replaces the previous one, and you compare the rendered file with the
+  source in the pane, at the same moment of the video.
 - **Marks stay as notes** on the timeline. The agent ticks each one off when it has dealt with it.
 
 The app's document is a `.media.json` file next to the video. Ask the agent something like "open clip.mp4 in the media

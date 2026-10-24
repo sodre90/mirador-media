@@ -1,7 +1,7 @@
-import { checkedDocument, hasEdits, MAX_EXPOSURE, NO_EDITS, type Box, type Edits, type MediaDocument, type Probe } from "./document.ts";
-import { overlaps, withoutSpan, withSpan } from "./spans.ts";
-import { keptPieces } from "./timeline.ts";
-import { formatExposure, formatTime } from "./time.ts";
+import { checkedDocument, hasEdits, NO_EDITS, SETTING_NAMES, SETTINGS, type Box, type Edits, type MediaDocument, type Probe, type Ranged, type SettingName } from "./document.ts";
+import { overlaps, painted, withoutSpan, withSpan } from "./spans.ts";
+import { keptParts } from "./timeline.ts";
+import { formatTime, SETTING_FORMATS } from "./time.ts";
 
 export type Operation =
   | { op: "source"; file: string }
@@ -9,7 +9,11 @@ export type Operation =
   | { op: "untrim" }
   | { op: "cut"; start: number; end: number }
   | { op: "uncut"; start: number; end: number }
-  | { op: "exposure"; ev: number }
+  | { op: "exposure"; ev: number; start?: number; end?: number }
+  | { op: "speed"; rate: number; start?: number; end?: number }
+  | { op: "volume"; level: number; start?: number; end?: number }
+  /** Takes a setting's ranges off, or the parts of them from start to end, so the clip's value holds there again. */
+  | { op: "clear"; edit: SettingName; start?: number; end?: number }
   | { op: "mark"; at: number; end?: number | null; box?: Box | null; note: string }
   | { op: "mark-done"; mark: string; done?: boolean }
   | { op: "remove-mark"; mark: string }
@@ -67,8 +71,56 @@ function spanIn(document: MediaDocument, operation: Record<string, unknown>, who
 /** Refuses edits that would leave nothing of the video, once its length is known. */
 function keepingSome(document: MediaDocument, edits: Edits) {
   const duration = document.source?.probe?.duration;
-  if (duration !== undefined && keptPieces(edits, duration).length === 0) refuse("That would leave nothing of the video.");
+  if (duration !== undefined && keptParts(edits, duration).length === 0) refuse("That would leave nothing of the video.");
   return edits;
+}
+
+/** How each setting is given and refused. */
+const SETTING_OPERATIONS: Record<SettingName, { field: string; places: number; asShot: string; refusal: string }> = {
+  exposure: { field: "ev", places: 2, asShot: "as shot", refusal: "ev must be stops from -3 to 3; 0 is as shot." },
+  speed: { field: "rate", places: 3, asShot: "as shot", refusal: "rate must be from 0.25 to 4; below 1 is slower and 1 is as shot." },
+  volume: { field: "level", places: 2, asShot: "as recorded", refusal: "level must be from 0 to 4; 0 mutes and 1 is as recorded." },
+};
+
+/** The part of the source an operation gives with start and end, or null when it gives neither, for the whole clip. */
+function rangeOf(document: MediaDocument, operation: Record<string, unknown>) {
+  if (operation.start === undefined && operation.end === undefined) return null;
+  if (operation.start === undefined || operation.end === undefined) refuse("Give a range both start and end, or neither for the whole clip.");
+  return spanIn(document, operation, "range's");
+}
+
+const sameValue = (a: Ranged, b: Ranged) => a.value === b.value;
+
+function setSetting(document: MediaDocument, name: SettingName, operation: Record<string, unknown>): Applied {
+  const source = sourceOf(document);
+  const { field, places, asShot, refusal } = SETTING_OPERATIONS[name];
+  const describe = SETTING_FORMATS[name];
+  const given = operation[field];
+  if (!isNumber(given) || given < SETTINGS[name].least || given > SETTINGS[name].most) refuse(refusal);
+  if (name === "volume" && source.probe?.audio === false) refuse(`${source.file} has no sound.`);
+  const value = roundTo(given, places);
+  const range = rangeOf(document, operation);
+  const setting = document.edits[name];
+  const changedSetting = range ? { ...setting, ranges: painted(setting.ranges, range, { ...range, value }, sameValue) } : { ...setting, clip: value };
+  const summary = range
+    ? `Set the ${name} to ${describe(value)} from ${formatTime(range.start)} to ${formatTime(range.end)}.`
+    : value === SETTINGS[name].asShot
+      ? `Set the ${name} back to ${asShot}.`
+      : `Set the ${name} to ${describe(value)}.`;
+  return changed(document, { edits: { ...document.edits, [name]: changedSetting } }, summary, [`edits.${name}`]);
+}
+
+function clearSetting(document: MediaDocument, operation: Record<string, unknown>): Applied {
+  const name = operation.edit as SettingName;
+  if (!SETTING_NAMES.includes(name)) refuse(`edit is one of ${SETTING_NAMES.join(", ")}.`);
+  const setting = document.edits[name];
+  const range = rangeOf(document, operation);
+  const ranges = range ? painted(setting.ranges, range, null, sameValue) : [];
+  if (JSON.stringify(ranges) === JSON.stringify(setting.ranges)) {
+    refuse(`The ${name} has no range of its own ${range ? `from ${formatTime(range.start)} to ${formatTime(range.end)}` : "to take off"}.`);
+  }
+  const where = range ? ` from ${formatTime(range.start)} to ${formatTime(range.end)}` : "";
+  return changed(document, { edits: { ...document.edits, [name]: { ...setting, ranges } } }, `The ${name}${where} is the whole clip's again.`, [`edits.${name}`]);
 }
 
 export const describeSpan = ({ start, end }: { start: number; end: number }) => `${formatTime(start)}–${formatTime(end)}`;
@@ -128,12 +180,12 @@ export function applyOperation(document: MediaDocument, operation: unknown): App
       if (!document.edits.cuts.some((cut) => overlaps(cut, span))) refuse(`Nothing is cut from ${describeSpan(span)}; the cuts are ${document.edits.cuts.map(describeSpan).join(", ") || "none"}.`);
       return changed(document, { edits: { ...document.edits, cuts: withoutSpan(document.edits.cuts, span) } }, `Put ${describeSpan(span)} back.`, ["edits.cuts"]);
     }
-    case "exposure": {
-      sourceOf(document);
-      if (!isNumber(operation.ev) || Math.abs(operation.ev) > MAX_EXPOSURE) refuse(`ev must be stops from -${MAX_EXPOSURE} to ${MAX_EXPOSURE}; 0 is as shot.`);
-      const ev = roundTo(operation.ev, 2);
-      return changed(document, { edits: { ...document.edits, exposure: ev } }, ev === 0 ? "Set the exposure back to as shot." : `Set the exposure to ${formatExposure(ev)}.`, ["edits.exposure"]);
-    }
+    case "exposure":
+    case "speed":
+    case "volume":
+      return setSetting(document, operation.op, operation);
+    case "clear":
+      return clearSetting(document, operation);
     case "mark": {
       sourceOf(document);
       const at = secondsIn(document, operation.at, "at");

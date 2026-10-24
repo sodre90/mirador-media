@@ -32,7 +32,7 @@ describe("applyOperation", () => {
     expect(opened.document.source).toEqual({ file: "clip.mp4", probe: null });
     expect(opened.summaries).toEqual(["Opened clip.mp4."]);
     const edited = applied(withVideo(), { op: "exposure", ev: 1 }, { op: "source", file: "other.mov" });
-    expect(edited.document).toMatchObject({ source: { file: "other.mov", probe: null }, edits: { trim: null, exposure: 0 }, marks: [] });
+    expect(edited.document).toMatchObject({ source: { file: "other.mov", probe: null }, edits: NO_EDITS, marks: [] });
     expect(edited.summaries[1]).toBe("Opened other.mov; the edits and marks of clip.mp4 are put aside, and undo brings them back.");
     expect(refusal(withVideo(), { op: "source", file: "clip.mp4" })).toBe("clip.mp4 is the video already.");
   });
@@ -67,8 +67,45 @@ describe("applyOperation", () => {
   test("sets the exposure in stops, rounded to a hundredth, from -3 to 3", () => {
     const { document, summaries } = applied(withVideo(), { op: "exposure", ev: 0.4999 }, { op: "exposure", ev: -1.5 }, { op: "exposure", ev: 0 });
     expect(summaries).toEqual(["Set the exposure to +0.50 EV.", "Set the exposure to -1.50 EV.", "Set the exposure back to as shot."]);
-    expect(document.edits.exposure).toBe(0);
+    expect(document.edits.exposure).toEqual({ clip: 0, ranges: [] });
     expect(refusal(withVideo(), { op: "exposure", ev: 4 })).toBe("ev must be stops from -3 to 3; 0 is as shot.");
+  });
+
+  test("sets the speed and the volume for the whole clip, and refuses them outside what they take", () => {
+    const { document, summaries } = applied(withVideo(), { op: "speed", rate: 0.5 }, { op: "volume", level: 1.5 }, { op: "volume", level: 1 });
+    expect(document.edits.speed).toEqual({ clip: 0.5, ranges: [] });
+    expect(summaries).toEqual(["Set the speed to 0.5×.", "Set the volume to 150%.", "Set the volume back to as recorded."]);
+    expect(refusal(withVideo(), { op: "speed", rate: 8 })).toBe("rate must be from 0.25 to 4; below 1 is slower and 1 is as shot.");
+    expect(refusal(withVideo(), { op: "volume", level: -1 })).toBe("level must be from 0 to 4; 0 mutes and 1 is as recorded.");
+    const silent: MediaDocument = { ...newDocument(), source: { file: "clip.webm", probe: { ...probe, audio: false } } };
+    expect(refusal(silent, { op: "volume", level: 0 })).toBe("clip.webm has no sound.");
+  });
+
+  test("gives a range its own value, which replaces what was set there before, and takes ranges off again", () => {
+    const { document, summaries } = applied(
+      withVideo(),
+      { op: "speed", rate: 0.5, start: 10, end: 20 },
+      { op: "speed", rate: 2, start: 12, end: 15 },
+      { op: "volume", level: 0, start: 30, end: 40 },
+      { op: "clear", edit: "speed", start: 18, end: 25 },
+    );
+    expect(document.edits.speed.ranges).toEqual([
+      { start: 10, end: 12, value: 0.5 },
+      { start: 12, end: 15, value: 2 },
+      { start: 15, end: 18, value: 0.5 },
+    ]);
+    expect(summaries).toEqual([
+      "Set the speed to 0.5× from 0:10.00 to 0:20.00.",
+      "Set the speed to 2× from 0:12.00 to 0:15.00.",
+      "Set the volume to 0% (muted) from 0:30.00 to 0:40.00.",
+      "The speed from 0:18.00 to 0:25.00 is the whole clip's again.",
+    ]);
+    expect(applyOperation(document, { op: "clear", edit: "volume" }).document.edits.volume).toEqual({ clip: 1, ranges: [] });
+    expect(refusal(document, { op: "clear", edit: "exposure" })).toBe("The exposure has no range of its own to take off.");
+    expect(refusal(document, { op: "clear", edit: "speed", start: 50, end: 60 })).toBe("The speed has no range of its own from 0:50.00 to 1:00.00.");
+    expect(refusal(document, { op: "clear", edit: "blur" })).toBe("edit is one of exposure, speed, volume.");
+    expect(refusal(withVideo(), { op: "exposure", ev: 1, start: 10 })).toBe("Give a range both start and end, or neither for the whole clip.");
+    expect(refusal(withVideo(), { op: "exposure", ev: 1, start: 10, end: 90 })).toBe("end is past the end: clip.mp4 is 1:23.40 long.");
   });
 
   test("marks a moment, a range and a box in whole source pixels kept inside the frame, numbering them for good", () => {
@@ -106,7 +143,9 @@ describe("applyOperation", () => {
       { op: "mark", at: 2, note: "x" },
       { op: "mark-done", mark: "m1" },
       { op: "cut", start: 3, end: 4 },
-      { op: "rendered", file: "clip.edited.mp4", edits: { trim: { start: 1, end: 9 }, cuts: [{ start: 3, end: 4 }], exposure: 1 } },
+      { op: "speed", rate: 2, start: 5, end: 6 },
+      { op: "clear", edit: "speed" },
+      { op: "rendered", file: "clip.edited.mp4", edits: { ...NO_EDITS, trim: { start: 1, end: 9 }, cuts: [{ start: 3, end: 4 }] } },
       { op: "source", file: "b.mp4" },
     );
     expect(applied(document, ...inverses).document).toEqual(start);
@@ -124,23 +163,26 @@ describe("checkedDocument", () => {
     const document = applied(withVideo(), { op: "mark", at: 3, box: { x: 1, y: 2, width: 3, height: 4 }, note: "n" }).document;
     expect(checkedDocument(JSON.parse(JSON.stringify(document)))).toEqual(document);
     expect(() => checkedDocument({ version: 2 })).toThrow("not a media document: it needs version 1");
-    expect(() => checkedDocument({ ...document, edits: { trim: null, exposure: 9 } })).toThrow("edits: exposure must be a number from -3 to 3");
+    expect(() => checkedDocument({ ...document, edits: { trim: null, exposure: 9 } })).toThrow("edits.exposure must be from -3 to 3");
+    expect(() => checkedDocument({ ...document, edits: { ...NO_EDITS, speed: { clip: 1, ranges: [{ start: 1, end: 2, value: 9 }] } } })).toThrow("edits.speed must be from 0.25 to 4, in its ranges too");
     expect(() => checkedDocument({ ...document, marks: [...document.marks, ...document.marks] })).toThrow("two marks have the same id");
     expect(() => checkedDocument({ ...document, edits: { ...document.edits, cuts: [{ start: 5, end: 6 }, { start: 1, end: 2 }] } })).toThrow("edits: cuts must be in order, none overlapping");
   });
 
-  test("reads a document from before cuts existed as one with none", () => {
+  test("reads a document from before cuts, speed and volume existed, whose exposure was one number", () => {
     const older = { ...withVideo(), edits: { trim: { start: 1, end: 9 }, exposure: 1 }, rendered: { file: "clip.edited.mp4", edits: { trim: null, exposure: 1 }, at: 1 } };
     const read = checkedDocument(JSON.parse(JSON.stringify(older)));
-    expect(read.edits).toEqual({ trim: { start: 1, end: 9 }, cuts: [], exposure: 1 });
-    expect(read.rendered!.edits).toEqual({ trim: null, cuts: [], exposure: 1 });
+    const brighter = { clip: 1, ranges: [] };
+    expect(read.edits).toEqual({ ...NO_EDITS, trim: { start: 1, end: 9 }, exposure: brighter });
+    expect(read.rendered!.edits).toEqual({ ...NO_EDITS, exposure: brighter });
   });
 });
 
 describe("sameEdits", () => {
   test("compares every field, whatever order its keys are in", () => {
-    const edits = { trim: { start: 1, end: 9 }, cuts: [{ start: 3, end: 4 }], exposure: 1 };
-    expect(sameEdits(edits, { exposure: 1, cuts: [{ end: 4, start: 3 }], trim: { end: 9, start: 1 } })).toBe(true);
+    const edits = { ...NO_EDITS, trim: { start: 1, end: 9 }, cuts: [{ start: 3, end: 4 }] };
+    expect(sameEdits(edits, { volume: NO_EDITS.volume, speed: NO_EDITS.speed, exposure: { ranges: [], clip: 0 }, cuts: [{ end: 4, start: 3 }], trim: { end: 9, start: 1 } })).toBe(true);
+    expect(sameEdits(edits, { ...edits, speed: { clip: 1, ranges: [{ start: 1, end: 2, value: 2 }] } })).toBe(false);
     expect(sameEdits(edits, { ...edits, cuts: [] })).toBe(false);
     expect(hasEdits(NO_EDITS)).toBe(false);
     expect(hasEdits({ ...NO_EDITS, cuts: [{ start: 1, end: 2 }] })).toBe(true);

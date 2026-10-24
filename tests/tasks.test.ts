@@ -48,11 +48,23 @@ const firstPixel = async (file: string) => {
 
 const probed = async (file: string) => probeFrom(await runProgram(binaries.ffprobe, [...PROBE_ARGUMENTS, file], never));
 
-/** A clip of the test pattern with a tone at CD audio's 44.1 kHz, which WebM's Opus can't take as it is. */
-async function clipWithSound(folder: string, name: string, seconds: number) {
-  const sources = ["-f", "lavfi", "-i", `testsrc2=s=160x120:r=10:d=${seconds}`, "-f", "lavfi", "-i", `sine=f=440:r=44100:d=${seconds}`];
+/** A clip of the test pattern, or another of ffmpeg's sources, with a tone at CD audio's 44.1 kHz, which WebM's Opus can't take as it is. */
+async function clipWithSound(folder: string, name: string, seconds: number, picture = "testsrc2=s=160x120:r=10") {
+  const sources = ["-f", "lavfi", "-i", `${picture}:d=${seconds}`, "-f", "lavfi", "-i", `sine=f=440:r=44100:d=${seconds}`];
   await runProgram(binaries.ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", ...sources, "-c:v", "libx264", "-c:a", "aac", "-shortest", join(folder, name)], never);
 }
+
+const pixelAt = async (file: string, seconds: number) => {
+  const decoded = Bun.spawn([binaries.ffmpeg!, "-hide_banner", "-loglevel", "error", "-ss", String(seconds), "-i", file, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]);
+  return new Uint8Array(await new Response(decoded.stdout).arrayBuffer())[0]!;
+};
+
+/** How loud a part of a file's sound is on average, in dB below full scale; ffmpeg says -91 for silence. */
+const loudness = async (file: string, from: number, seconds: number) => {
+  const measured = Bun.spawn([binaries.ffmpeg!, "-hide_banner", "-nostats", "-ss", String(from), "-t", String(seconds), "-i", file, "-vn", "-af", "volumedetect", "-f", "null", "-"], { stderr: "pipe" });
+  const report = await new Response(measured.stderr).text();
+  return Number(/mean_volume: (-?[\d.]+) dB/.exec(report)![1]);
+};
 
 const streamSeconds = async (file: string) => {
   const report = await runProgram(binaries.ffprobe, ["-v", "error", "-show_entries", "stream=codec_type,sample_rate:format=duration", "-of", "json", file], never);
@@ -92,7 +104,7 @@ describe("the render task", () => {
     expect((await probed(join(folder, "clip.edited.webm"))).duration).toBeCloseTo(2, 0);
     const [red, green, blue] = await firstPixel(join(folder, "clip.edited.webm"));
     for (const channel of [red, green, blue]) expect(Math.abs(channel! - 64)).toBeLessThanOrEqual(8);
-    expect(rendered.rendered).toMatchObject({ file: "clip.edited.webm", edits: { trim: { start: 1, end: 3 }, exposure: -1 } });
+    expect(rendered.rendered).toMatchObject({ file: "clip.edited.webm", edits: { trim: { start: 1, end: 3 }, exposure: { clip: -1, ranges: [] } } });
     expect(rendered.source!.probe).not.toBeNull();
     expect(progress[0]).toEqual([null, "reading clip.webm"]);
     expect(progress.at(-1)![0]).toBeGreaterThan(0.5);
@@ -110,6 +122,25 @@ describe("the render task", () => {
       expect(duration).toBeCloseTo(6, 1);
       expect(kinds).toEqual(["video", sound]);
     }
+  }, 60_000);
+
+  test("plays each range at its own speed, volume and exposure, as the preview does", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "media-render-"));
+    await clipWithSound(folder, "clip.mp4", 10, "color=c=0x808080:s=64x48:r=10");
+    const operations = [
+      { op: "source", file: "clip.mp4" },
+      { op: "speed", rate: 2, start: 2, end: 4 },
+      { op: "volume", level: 0, start: 6, end: 8 },
+      { op: "exposure", ev: -1, start: 8, end: 10 },
+    ];
+    const document = operations.reduce((edited, operation) => applyOperation(edited, operation).document, newDocument());
+    await runTask(render, document, folder);
+    const output = join(folder, "clip.edited.mp4");
+    expect((await streamSeconds(output)).duration).toBeCloseTo(9, 1);
+    expect(await loudness(output, 3.2, 1.6)).toBeGreaterThan(-30);
+    expect(await loudness(output, 5.2, 1.6)).toBeLessThan(-80);
+    expect(Math.abs((await pixelAt(output, 1)) - 128)).toBeLessThanOrEqual(8);
+    expect(Math.abs((await pixelAt(output, 8)) - 64)).toBeLessThanOrEqual(8);
   }, 60_000);
 
   test("writes an MP4 for any other source, and replaces the one rendered before", async () => {

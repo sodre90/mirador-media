@@ -1,7 +1,7 @@
 import ffprobePath from "@derhuerst/ffprobe-static";
 import ffmpegPath from "ffmpeg-static";
 import type { Edits, Probe } from "../shared/document.ts";
-import { keptPieces } from "../shared/timeline.ts";
+import { keptPieces, type Piece } from "../shared/timeline.ts";
 
 export const binaries = { ffmpeg: ffmpegPath, ffprobe: ffprobePath };
 
@@ -15,22 +15,38 @@ export function exposureFilter(ev: number) {
 
 const seconds = (value: number) => String(Math.round(value * 1000) / 1000);
 
+/** atempo takes 0.5 and up, so a slower speed is two of them, each the square root of it. */
+function tempoFilters(speed: number) {
+  if (speed === 1) return [];
+  if (speed >= 0.5) return [`atempo=${speed}`];
+  const half = Math.sqrt(speed).toFixed(6);
+  return [`atempo=${half}`, `atempo=${half}`];
+}
+
+/**
+ * Each piece's picture and sound, from the start of what is read: as fast as its speed, as bright and loud as it is set.
+ * A piece played faster or slower is brought back to the source's frame rate, else the join that follows reckons its
+ * length by frames of the source's length and leaves a gap that the encoder fills with repeated frames.
+ */
+function pieceFilters({ start, end, exposure, speed, volume }: Piece, index: number, from: number, { audio, fps }: Probe) {
+  const inRead = (time: number) => seconds(time - from);
+  const timing = speed === 1 ? ["setpts=PTS-STARTPTS"] : [`setpts=(PTS-STARTPTS)/${speed}`, `fps=${fps}`];
+  const picture = [`trim=start=${inRead(start)}:end=${inRead(end)}`, ...timing, ...(exposure !== 0 ? [exposureFilter(exposure)] : []), "format=yuv420p"];
+  const sound = [`atrim=start=${inRead(start)}:end=${inRead(end)}`, "asetpts=PTS-STARTPTS", ...tempoFilters(speed), ...(volume !== 1 ? [`volume=${volume}`] : [])];
+  return [`[0:v]${picture.join(",")}[v${index}]`, ...(audio ? [`[0:a]${sound.join(",")}[a${index}]`] : [])];
+}
+
 /**
  * ffmpeg's arguments to render the edits of `input` into `output`. It seeks to the first kept piece and reads to the end
- * of the last, takes each piece with its sound, and joins them. An MP4 gets its index first, so it plays while it streams.
+ * of the last, takes each piece with its sound and its own looks, and joins them. An MP4 gets its index first, so it
+ * plays while it streams.
  */
 export function renderArguments(input: string, output: string, edits: Edits, probe: Probe) {
   const pieces = keptPieces(edits, probe.duration);
   if (pieces.length === 0) throw new Error("the edits leave nothing of the video");
   const [from, to] = [pieces[0]!.start, pieces.at(-1)!.end];
-  const inRead = (time: number) => seconds(time - from);
-  const pieceFilters = pieces.flatMap(({ start, end }, index) => [
-    `[0:v]trim=start=${inRead(start)}:end=${inRead(end)},setpts=PTS-STARTPTS[v${index}]`,
-    ...(probe.audio ? [`[0:a]atrim=start=${inRead(start)}:end=${inRead(end)},asetpts=PTS-STARTPTS[a${index}]`] : []),
-  ]);
   const joined = pieces.map((_, index) => `[v${index}]${probe.audio ? `[a${index}]` : ""}`).join("");
-  const looks = [...(edits.exposure !== 0 ? [exposureFilter(edits.exposure)] : []), "format=yuv420p"].join(",");
-  const graph = [...pieceFilters, `${joined}concat=n=${pieces.length}:v=1:a=${probe.audio ? 1 : 0}[joined]${probe.audio ? "[sound]" : ""}`, `[joined]${looks}[picture]`].join(";");
+  const graph = [...pieces.flatMap((piece, index) => pieceFilters(piece, index, from, probe)), `${joined}concat=n=${pieces.length}:v=1:a=${probe.audio ? 1 : 0}[picture]${probe.audio ? "[sound]" : ""}`].join(";");
   const webm = /\.webm$/i.test(output);
   const video = webm ? ["-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-row-mt", "1", "-crf", "30", "-b:v", "0"] : ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18"];
   const sound = probe.audio ? ["-map", "[sound]", ...(webm ? ["-c:a", "libopus", "-b:a", "128k"] : ["-c:a", "aac", "-b:a", "192k"])] : [];

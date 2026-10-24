@@ -1,0 +1,235 @@
+:root {
+  color-scheme: light dark;
+  --text: light-dark(#1c1c1e, #ececee);
+  --muted: light-dark(#6b6b70, #9a9aa0);
+  --line: light-dark(#d9d9de, #3a3a40);
+  --surface: light-dark(#f4f4f6, #1c1d20);
+  --accent: light-dark(#0a66d8, #5aa2ff);
+  --mark: #ff2d55;
+  --done: light-dark(#9a9aa0, #6b6b70);
+}
+html {
+  background: light-dark(#ffffff, #111214);
+  color: var(--text);
+  font: 14px/1.4 system-ui, sans-serif;
+}
+body {
+  margin: 0;
+}
+main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+}
+main.empty {
+  color: var(--muted);
+}
+header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+.facts {
+  color: var(--muted);
+}
+.modes {
+  margin-left: auto;
+  display: flex;
+}
+button {
+  font: inherit;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.modes button {
+  border-radius: 0;
+}
+.modes button:first-child {
+  border-radius: 6px 0 0 6px;
+}
+.modes button:last-child {
+  border-radius: 0 6px 6px 0;
+}
+.modes button[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+button.link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+}
+.stage {
+  position: relative;
+  background: #000;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.stage video {
+  display: block;
+  width: 100%;
+  height: 55vh;
+  object-fit: contain;
+}
+.overlay {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+}
+.overlay.drawable {
+  cursor: crosshair;
+}
+.box {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px solid var(--mark);
+  pointer-events: none;
+}
+.box.drawing {
+  border-style: dashed;
+}
+.box span {
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  transform: translateY(-100%);
+  background: var(--mark);
+  color: #fff;
+  font-size: 11px;
+  padding: 0 4px;
+}
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.time {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.timeline {
+  position: relative;
+  flex: 1;
+  height: 22px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  cursor: pointer;
+  touch-action: none;
+}
+.timeline .kept {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.timeline .range {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--mark) 25%, transparent);
+}
+.timeline .tick {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  min-width: 3px;
+  margin-left: -1px;
+  background: var(--mark);
+  border-radius: 2px;
+}
+.timeline .tick.done {
+  background: var(--done);
+}
+.timeline .playhead {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--text);
+}
+.edits {
+  margin: 0;
+  color: var(--muted);
+}
+.task {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.task progress {
+  width: 120px;
+}
+.task .failed {
+  color: var(--mark);
+}
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.composer .where {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--muted);
+}
+.composer textarea {
+  font: inherit;
+  color: inherit;
+  background: light-dark(#fff, #111214);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 6px;
+  resize: vertical;
+}
+.composer .send {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.marks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.marks li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--line);
+}
+.marks li.done .note {
+  color: var(--done);
+  text-decoration: line-through;
+}
+.marks .note {
+  flex: 1;
+}
+.marks .remove {
+  background: none;
+  border: none;
+  color: var(--muted);
+}
+.problem {
+  color: var(--mark);
+  margin: 0;
+}

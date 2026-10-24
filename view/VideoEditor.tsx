@@ -4,13 +4,14 @@ import { changesSetting, NO_EDITS, type Box, type MediaDocument } from "../share
 import { markMessage } from "../shared/mark-message.ts";
 import { applyOperation } from "../shared/operations.ts";
 import { formatTime, frameAt, frameMiddle } from "../shared/time.ts";
-import { keptMoment, keptParts, keptPieces, looksAt, resultTime, sourceTime } from "../shared/timeline.ts";
+import { keptMoment, keptParts, keptPieces, looksAt, removedParts, resultTime, sourceTime } from "../shared/timeline.ts";
 import { capturedFrame, exposurePreview } from "./frame.ts";
 import { NextFrameIcon, PauseIcon, PlayIcon, PreviousFrameIcon } from "./icons.tsx";
 import { BoxToggle, Composer, EditChips, Header, markNumber, MarkList, TaskResult, useMediaUrl, type Mode } from "./parts.tsx";
 import { usePlayhead } from "./playhead.ts";
 import { Player, type ShownBox } from "./Player.tsx";
 import { useSoundLevel } from "./sound.ts";
+import { useThumbnails } from "./thumbnails.ts";
 import { Timeline } from "./Timeline.tsx";
 
 const DEFAULT_FPS = 30;
@@ -70,8 +71,10 @@ export function VideoEditor({ state }: { state: AppDocumentState<MediaDocument> 
     },
     [pieces],
   );
-  const playhead = usePlayhead(video, shown && "url" in shown ? shown.url : null, playOnlyKeptPieces);
+  const shownUrl = shown && "url" in shown ? shown.url : null;
+  const playhead = usePlayhead(video, shownUrl, playOnlyKeptPieces);
   const time = playhead.time;
+  const thumbnails = useThumbnails(shownUrl);
 
   const hasVideo = document.source !== null;
   const renderedPieces = useMemo(() => (document.rendered && probe ? keptPieces(document.rendered.edits, probe.duration) : null), [document.rendered, probe]);
@@ -176,7 +179,7 @@ export function VideoEditor({ state }: { state: AppDocumentState<MediaDocument> 
       <EditChips mode={mode} document={document} />
       <Player
         picture={{ kind: "video", ref: video }}
-        src={shown && "url" in shown ? shown.url : null}
+        src={shownUrl}
         filter={filter}
         frameEdits={previewing ? edits : NO_EDITS}
         sizing={{ even: true }}
@@ -202,9 +205,10 @@ export function VideoEditor({ state }: { state: AppDocumentState<MediaDocument> 
       <Timeline
         duration={playhead.duration}
         time={time}
-        kept={mode === "rendered" ? null : editedParts}
+        thumbnails={thumbnails}
+        removed={mode === "rendered" ? [] : removedParts(edits, playhead.duration)}
         settings={mode === "rendered" ? null : edits}
-        marks={mode === "rendered" ? [] : document.marks}
+        marks={mode === "rendered" ? null : document.marks}
         rangeStart={rangeStart}
         onSeek={(seconds) => seek(seconds)}
       />

@@ -155,6 +155,12 @@ function correlation(a: number[], b: number[]) {
   return a.reduce((sum, value, index) => sum + (value - meanA) * (b[index]! - meanB), 0) / (spread(a, meanA) * spread(b, meanB));
 }
 
+/** How wide the filmstrip's first frame was grabbed, at the thumbnails' height of 72 px: it has the shown file's shape. */
+const thumbnailWidth = (page: Page) => view(page).locator(".filmstrip img").first().evaluate((img: HTMLImageElement) => img.naturalWidth);
+
+/** The moment the filmstrip's last frame shows: the middle of the last of its 20 parts of the shown file. */
+const lastThumbnailAt = async (page: Page) => Number(await view(page).locator(".filmstrip img").last().getAttribute("data-at"));
+
 const channel = (cells: Buffer, which: number) => [...cells].filter((_, index) => index % 3 === which);
 
 /**
@@ -174,6 +180,11 @@ test("mark 0:39 with a box and send 'too dark here'; the agent trims, cuts, slow
     await expect(view(page).locator("header")).toContainText("clip.webm");
     await expect(view(page).locator(".facts")).toHaveText("320×240 · 10 fps · 0:45.00");
     expect(await mirador.callCanvasTool(host, conversation, "app_state", {})).toContain("Video: clip.webm, 320×240, 10 fps, 0:45.00, with sound.");
+    await expect(view(page).locator(".timeline .label")).toHaveText(["Video", "Marks"]);
+    await expect(view(page).locator(".timeline .tick-label")).not.toHaveCount(0);
+    await expect(view(page).locator(".filmstrip img")).toHaveCount(20, { timeout: 20_000 });
+    expect(await thumbnailWidth(page)).toBe(96);
+    expect(await lastThumbnailAt(page)).toBeCloseTo((19.5 / 20) * 45, 0);
   });
 
   await test.step("the user marks 0:39 with a box and sends what's wrong there, with the frame", async () => {
@@ -198,12 +209,14 @@ test("mark 0:39 with a box and send 'too dark here'; the agent trims, cuts, slow
 
   await test.step("the agent trims, cuts, slows, mutes and brightens it, and the pane previews all of it at once", async () => {
     expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "trim", start: 30, end: 42 } })).toBe("Trimmed to 0:30.00–0:42.00.");
-    await expect(view(page).locator(".timeline .kept")).toHaveCount(1);
+    await expect(view(page).locator(".timeline .removed.trim")).toHaveCount(2);
     expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "cut", start: 33, end: 35 } })).toBe("Cut 0:33.00–0:35.00 out.");
     expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "exposure", ev: 1 } })).toBe("Set the exposure to +1.00 EV.");
     expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "mark-done", mark: "m1" } })).toBe("Marked m1 done.");
     await expect(view(page).locator(".chip")).toHaveText(["Exposure +1.00 EV×"]);
-    await expect(view(page).locator(".timeline .kept")).toHaveCount(2);
+    await expect(view(page).locator(".timeline .removed")).toHaveCount(3);
+    await expect(view(page).locator(".timeline .removed.cut")).toHaveAttribute("title", "Cut: 0:33.00–0:35.00");
+    await expect(view(page).locator(".timeline .mark.done .pin")).toHaveText("1");
     expect(await mirador.callCanvasTool(host, conversation, "app_state", {})).toContain("The result is 0:10.00 long, in 2 pieces.");
     expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "speed", rate: 0.5, start: 35, end: 36 } })).toBe("Set the speed to 0.5× from 0:35.00 to 0:36.00.");
     expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "volume", level: 0, start: 38, end: 42 } })).toBe("Set the volume to 0% (muted) from 0:38.00 to 0:42.00.");
@@ -211,8 +224,8 @@ test("mark 0:39 with a box and send 'too dark here'; the agent trims, cuts, slow
     await expect(view(page).locator(".chip")).toHaveText(["Exposure +1.00 EV×"]);
     expect(await mirador.callCanvasTool(host, conversation, "app_state", {})).toContain("The result is 0:11.00 long, in 2 pieces.");
     await expect(view(page).locator("video")).toHaveCSS("filter", "brightness(2)");
-    await expect(view(page).locator(".timeline .kept")).toHaveCount(2);
-    await expect(view(page).locator(".timeline .setting")).toHaveCount(3);
+    await expect(view(page).locator(".timeline .label")).toHaveText(["Video", "Exposure", "Speed", "Volume", "Marks"]);
+    await expect(view(page).locator(".timeline .bar")).toHaveText(["+2.00 EV", "0.5×", "0% (muted)"]);
     await expect(view(page).getByLabel("m1 done")).toBeChecked();
 
     await view(page).locator("video").evaluate((element: HTMLVideoElement) => void (element.currentTime = 32.5));
@@ -265,6 +278,10 @@ test("mark 0:39 with a box and send 'too dark here'; the agent trims, cuts, slow
     await expect(view(page).getByLabel("Current time")).toHaveText(/^0:05\.00 \/ 0:11\.\d\d$/);
     await expect(view(page).locator("video")).toHaveCSS("filter", "none");
     expect(await view(page).locator("video").evaluate((element: HTMLVideoElement) => element.playbackRate)).toBe(1);
+    await expect(view(page).locator(".timeline .label")).toHaveText(["Video"]);
+    await expect(view(page).locator(".filmstrip img")).toHaveCount(20, { timeout: 20_000 });
+    expect(await thumbnailWidth(page)).toBe(54);
+    expect(await lastThumbnailAt(page)).toBeCloseTo((19.5 / 20) * durationOf(rendered), 0);
     await view(page).getByRole("button", { name: "Source" }).click();
     await expect(view(page).getByLabel("Current time")).toHaveText("0:36.00 / 0:45.00");
     await expect(view(page).locator(".chips-note")).toHaveText("As shot · Preview shows the edits");

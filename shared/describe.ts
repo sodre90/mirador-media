@@ -54,7 +54,7 @@ export interface WholeClipEdit {
   undo: Record<string, unknown>;
 }
 
-const SETTING_TITLES: Record<SettingName, string> = { exposure: "Exposure", speed: "Speed", volume: "Volume" };
+export const SETTING_TITLES: Record<SettingName, string> = { exposure: "Exposure", speed: "Speed", volume: "Volume" };
 
 export function wholeClipEdits(edits: Edits): WholeClipEdit[] {
   const settings = SETTING_NAMES.filter((name) => edits[name].clip !== SETTINGS[name].asShot).map((name) => ({

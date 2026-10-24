@@ -1,18 +1,37 @@
-import { useRef, type PointerEvent } from "react";
-import { SETTING_NAMES, type Edits, type Mark, type Span } from "../shared/document.ts";
+import { useEffect, useRef, useState, type PointerEvent } from "react";
+import { SETTING_NAMES, type Edits, type Mark } from "../shared/document.ts";
+import { SETTING_TITLES } from "../shared/describe.ts";
 import { describeSpan } from "../shared/operations.ts";
 import { formatTime, SETTING_FORMATS } from "../shared/time.ts";
+import type { RemovedPart } from "../shared/timeline.ts";
+import { markNumber } from "./parts.tsx";
+import type { Thumbnail } from "./thumbnails.ts";
+import { formatTick, rulerTicks } from "./scale.ts";
 
-const percent = (seconds: number, duration: number) => `${(Math.min(duration, Math.max(0, seconds)) / duration) * 100}%`;
+const PIXELS_PER_TICK_LABEL = 80;
+
+const REMOVED_TITLES: Record<RemovedPart["by"], string> = { trim: "Trimmed", cut: "Cut" };
+
+function useWidth() {
+  const element = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const resizes = new ResizeObserver(() => setWidth(element.current!.clientWidth));
+    resizes.observe(element.current!);
+    return () => resizes.disconnect();
+  }, []);
+  return [element, width] as const;
+}
 
 /**
- * The whole length: the parts a trim and cuts keep, the ranges with a setting of their own, the marks, and where the
- * video is; pressing or dragging on it seeks.
+ * The whole length as tracks under a time scale: the video's frames with what the trim and cuts take out, a lane for
+ * each setting with ranges of its own, the marks, and where the video is; pressing or dragging on them seeks.
  */
 export function Timeline({
   duration,
   time,
-  kept,
+  thumbnails,
+  removed,
   settings,
   marks,
   rangeStart,
@@ -20,60 +39,97 @@ export function Timeline({
 }: {
   duration: number;
   time: number;
-  kept: Span[] | null;
+  thumbnails: Thumbnail[];
+  removed: RemovedPart[];
   settings: Edits | null;
-  marks: Mark[];
+  marks: Mark[] | null;
   rangeStart: number | null;
   onSeek: (seconds: number) => void;
 }) {
-  const track = useRef<HTMLDivElement>(null);
+  const [tracks, width] = useWidth();
+  const at = (seconds: number) => `${(Math.min(duration, Math.max(0, seconds)) / duration) * 100}%`;
+  const spanning = (start: number, end: number) => ({ left: at(start), width: at(end - start) });
   const seekTo = (event: PointerEvent) => {
-    const bounds = track.current!.getBoundingClientRect();
+    const bounds = tracks.current!.getBoundingClientRect();
     onSeek(((event.clientX - bounds.left) / bounds.width) * duration);
   };
-  if (duration <= 0) return <div className="timeline empty" />;
+  const ranged = SETTING_NAMES.filter((name) => settings && settings[name].ranges.length > 0);
+  const known = duration > 0;
   return (
-    <div
-      ref={track}
-      className="timeline"
-      role="slider"
-      aria-label="Time"
-      aria-valuemin={0}
-      aria-valuemax={duration}
-      aria-valuenow={time}
-      aria-valuetext={formatTime(time)}
-      onPointerDown={(event) => {
-        track.current!.setPointerCapture(event.pointerId);
-        seekTo(event);
-      }}
-      onPointerMove={(event) => event.buttons === 1 && seekTo(event)}
-    >
-      {kept?.map((piece) => (
-        <div key={piece.start} className="kept" style={{ left: percent(piece.start, duration), width: percent(piece.end - piece.start, duration) }} title={`Kept: ${describeSpan(piece)}`} />
-      ))}
-      {settings &&
-        SETTING_NAMES.flatMap((name) =>
-          settings[name].ranges.map((range) => (
-            <div
-              key={`${name} ${range.start}`}
-              className={`setting ${name}`}
-              style={{ left: percent(range.start, duration), width: percent(range.end - range.start, duration) }}
-              title={`${name} ${SETTING_FORMATS[name](range.value)}: ${describeSpan(range)}`}
-            />
-          )),
+    <div className="timeline">
+      <div className="labels" aria-hidden="true">
+        <span className="ruler-row" />
+        <span className="label video">Video</span>
+        {ranged.map((name) => (
+          <span key={name} className={`label ${name}`}>
+            {SETTING_TITLES[name]}
+          </span>
+        ))}
+        {marks && <span className="label marks">Marks</span>}
+      </div>
+      <div
+        ref={tracks}
+        className="tracks"
+        role="slider"
+        aria-label="Time"
+        aria-valuemin={0}
+        aria-valuemax={duration}
+        aria-valuenow={time}
+        aria-valuetext={formatTime(time)}
+        onPointerDown={(event) => {
+          if (!known) return;
+          tracks.current!.setPointerCapture(event.pointerId);
+          seekTo(event);
+        }}
+        onPointerMove={(event) => known && event.buttons === 1 && seekTo(event)}
+      >
+        <div className="ruler">
+          {known &&
+            rulerTicks(duration, Math.max(2, Math.floor(width / PIXELS_PER_TICK_LABEL))).map((tick) => (
+              <span key={tick} className="tick-label" style={{ left: at(tick) }}>
+                {formatTick(tick)}
+              </span>
+            ))}
+        </div>
+        <div className="lane video">
+          <div className="filmstrip">
+            {thumbnails.map(({ at, src }) => (
+              <img key={at} src={src} data-at={at} alt="" draggable={false} />
+            ))}
+          </div>
+          {known &&
+            removed.map((part) => (
+              <div key={`${part.by} ${part.start}`} className={`removed ${part.by}`} style={spanning(part.start, part.end)} title={`${REMOVED_TITLES[part.by]}: ${describeSpan(part)}`} />
+            ))}
+        </div>
+        {known &&
+          ranged.map((name) => (
+            <div key={name} className={`lane ${name}`}>
+              {settings![name].ranges.map((range) => (
+                <div key={range.start} className={`bar ${name}`} style={spanning(range.start, range.end)} title={`${SETTING_TITLES[name]} ${SETTING_FORMATS[name](range.value)}: ${describeSpan(range)}`}>
+                  {SETTING_FORMATS[name](range.value)}
+                </div>
+              ))}
+            </div>
+          ))}
+        {marks && (
+          <div className="lane marks">
+            {known && rangeStart !== null && <div className="drafting" style={spanning(Math.min(rangeStart, time), Math.max(rangeStart, time))} />}
+            {known &&
+              marks.map((mark) => (
+                <div
+                  key={mark.id}
+                  className={`mark${mark.end === null ? "" : " ranged"}${mark.done ? " done" : ""}`}
+                  style={mark.end === null ? { left: at(mark.at) } : spanning(mark.at, mark.end)}
+                  title={`${mark.id}: ${mark.note}`}
+                >
+                  <span className="pin">{markNumber(mark)}</span>
+                </div>
+              ))}
+          </div>
         )}
-      {rangeStart !== null && (
-        <div className="range" style={{ left: percent(Math.min(rangeStart, time), duration), width: percent(Math.abs(time - rangeStart), duration) }} />
-      )}
-      {marks.map((mark) => (
-        <div
-          key={mark.id}
-          className={`tick${mark.done ? " done" : ""}`}
-          style={{ left: percent(mark.at, duration), width: mark.end === null ? undefined : percent(mark.end - mark.at, duration) }}
-          title={`${mark.id}: ${mark.note}`}
-        />
-      ))}
-      <div className="playhead" style={{ left: percent(time, duration) }} />
+        {known && <div className="playhead" style={{ left: at(time) }} />}
+      </div>
     </div>
   );
 }

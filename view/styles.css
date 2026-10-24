@@ -243,61 +243,170 @@ button.icon.play:hover {
 }
 
 .timeline {
-  position: relative;
-  height: 26px;
+  display: flex;
+  gap: 8px;
+  padding: 6px 8px 8px;
   background: var(--panel);
-  border-radius: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  user-select: none;
+}
+.labels,
+.tracks {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.labels {
+  flex: none;
+  width: 58px;
+}
+.label {
+  display: flex;
+  align-items: center;
+  height: 22px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.ruler-row,
+.ruler {
+  height: 16px;
+}
+.label.video,
+.lane.video {
+  height: 40px;
+}
+.tracks {
+  position: relative;
+  flex: 1;
+  min-width: 0;
   cursor: pointer;
   touch-action: none;
 }
-.timeline .kept {
+.ruler {
+  position: relative;
+}
+.tick-label {
+  position: absolute;
+  top: 0;
+  bottom: 2px;
+  padding-left: 4px;
+  border-left: 1px solid var(--line);
+  color: var(--muted);
+  font: 10px/14px ui-monospace, Menlo, monospace;
+}
+.lane {
+  position: relative;
+  height: 22px;
+  background: var(--bg);
+  border-radius: 5px;
+}
+.lane.video {
+  overflow: hidden;
+  background: var(--raised);
+}
+.filmstrip {
+  display: flex;
+  height: 100%;
+}
+.filmstrip img {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  object-fit: cover;
+}
+.removed {
   position: absolute;
   top: 0;
   bottom: 0;
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  background: repeating-linear-gradient(135deg, rgb(10 10 12 / 0.82) 0 5px, rgb(255 255 255 / 0.16) 5px 7px);
 }
-.timeline .range {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  background: color-mix(in srgb, var(--mark) 25%, transparent);
+.removed.cut {
+  box-shadow: inset 2px 0 var(--mark), inset -2px 0 var(--mark);
 }
-.timeline .setting {
-  position: absolute;
-  bottom: 0;
-  height: 4px;
-  border-radius: 2px;
-}
-.timeline .setting.exposure {
-  background: var(--exposure);
-}
-.timeline .setting.speed {
-  background: var(--speed);
-  bottom: 4px;
-}
-.timeline .setting.volume {
-  background: var(--volume);
-  bottom: 8px;
-}
-.timeline .tick {
+.bar {
   position: absolute;
   top: 3px;
   bottom: 3px;
-  min-width: 3px;
-  margin-left: -1px;
-  background: var(--mark);
-  border-radius: 2px;
+  padding: 0 5px;
+  overflow: hidden;
+  border-radius: 4px;
+  color: #141518;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
-.timeline .tick.done {
+.bar.exposure {
+  background: var(--exposure);
+}
+.bar.speed {
+  background: var(--speed);
+}
+.bar.volume {
+  background: var(--volume);
+}
+.lane.marks .mark {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+}
+.mark.ranged {
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--mark) 30%, transparent);
+}
+.mark.ranged.done {
+  background: color-mix(in srgb, var(--done) 40%, transparent);
+}
+.pin {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  background: var(--mark);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+}
+.mark.ranged .pin {
+  transform: translateY(-50%);
+}
+.mark.done .pin {
   background: var(--done);
 }
-.timeline .playhead {
+.drafting {
   position: absolute;
-  top: -2px;
-  bottom: -2px;
+  top: 3px;
+  bottom: 3px;
+  border: 1px dashed var(--mark);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--mark) 12%, transparent);
+}
+.playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
   width: 2px;
   margin-left: -1px;
   background: var(--text);
+  pointer-events: none;
+}
+.playhead::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  transform: translateX(-50%);
+  background: var(--text);
+  clip-path: polygon(0 0, 100% 0, 100% 55%, 50% 100%, 0 55%);
 }
 
 .composer {

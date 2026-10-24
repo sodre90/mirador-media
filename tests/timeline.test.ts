@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { NO_EDITS } from "../shared/document.ts";
 import { painted, remainingOf, withoutSpan, withSpan } from "../shared/spans.ts";
-import { keptMoment, keptParts, keptPieces, resultLength, resultTime, sourceTime } from "../shared/timeline.ts";
+import { keptMoment, keptParts, keptPieces, removedParts, resultLength, resultTime, sourceTime } from "../shared/timeline.ts";
 
 describe("painted", () => {
   const speeds = [
@@ -88,5 +88,23 @@ describe("the timeline of the result", () => {
     expect(keptMoment(pieces, 34, -1)).toBe(33);
     expect(keptMoment(pieces, 10)).toBe(30);
     expect(keptMoment(pieces, 43)).toBe(42);
+  });
+});
+
+describe("removedParts", () => {
+  test("are what the trim leaves before and after it and the cuts, in order, each named by what takes it out", () => {
+    expect(removedParts({ ...NO_EDITS, trim: { start: 2, end: 18 }, cuts: [{ start: 5, end: 7 }] }, 20)).toEqual([
+      { start: 0, end: 2, by: "trim" },
+      { start: 5, end: 7, by: "cut" },
+      { start: 18, end: 20, by: "trim" },
+    ]);
+  });
+
+  test("leave out the side of a trim that keeps the source's start or end, and are only the cuts without a trim", () => {
+    expect(removedParts({ ...NO_EDITS, trim: { start: 0, end: 18 } }, 20)).toEqual([{ start: 18, end: 20, by: "trim" }]);
+    expect(removedParts({ ...NO_EDITS, cuts: [{ start: 12, end: 13 }, { start: 3, end: 4 }] }, 20)).toEqual([
+      { start: 3, end: 4, by: "cut" },
+      { start: 12, end: 13, by: "cut" },
+    ]);
   });
 });

@@ -7,6 +7,18 @@ export type Looks = Record<SettingName, number>;
 /** A part of the source the edits keep, played as one piece of the result, with the same looks all through. */
 export interface Piece extends Span, Looks {}
 
+/** A part of the source the result leaves out, and which edit takes it out. */
+export interface RemovedPart extends Span {
+  by: "trim" | "cut";
+}
+
+/** The parts the trim leaves before and after it, and the cuts, in order. */
+export function removedParts(edits: Edits, duration: number): RemovedPart[] {
+  const trimmed = edits.trim ? [{ start: 0, end: edits.trim.start }, { start: edits.trim.end, end: duration }].map((span) => ({ ...span, by: "trim" as const })) : [];
+  const cut = edits.cuts.map(({ start, end }) => ({ start, end, by: "cut" as const }));
+  return [...trimmed, ...cut].filter(({ start, end }) => end > start).sort((a, b) => a.start - b.start);
+}
+
 /** The parts of the source the result keeps, in order: what the trim keeps, less the cuts. */
 export const keptParts = (edits: Edits, duration: number) => remainingOf(edits.trim ?? { start: 0, end: duration }, edits.cuts);
 

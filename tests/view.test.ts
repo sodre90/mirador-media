@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { buildView } from "../scripts/build-view.ts";
 import { NO_EDITS } from "../shared/document.ts";
 import { boxBetween, frameOnStage, sourcePoint } from "../view/geometry.ts";
+import { formatTick, rulerTicks } from "../view/scale.ts";
+import { thumbnailTimes } from "../view/thumbnails.ts";
 
 describe("the frame on the stage", () => {
   const source = { width: 1920, height: 1080 };
@@ -56,3 +58,20 @@ test("the view bundles into one self-contained file with its styles", async () =
     await rm(outdir, { recursive: true, force: true });
   }
 }, 60_000);
+
+describe("the timeline's ruler", () => {
+  test("names whole steps of the smallest step that fits, and none in the last half step", () => {
+    expect(rulerTicks(20, 7)).toEqual([0, 5, 10, 15]);
+    expect(rulerTicks(125, 4)).toEqual([0, 60]);
+    expect(rulerTicks(0.3, 2)).toEqual([0]);
+    expect(rulerTicks(0, 5)).toEqual([]);
+  });
+
+  test("names a time to the second, and to the tenth between seconds", () => {
+    expect([0, 5, 90, 3720, 1.5].map(formatTick)).toEqual(["0:00", "0:05", "1:30", "1:02:00", "0:01.5"]);
+  });
+});
+
+test("the filmstrip shows the middle of each equal part of the video", () => {
+  expect(thumbnailTimes(10, 4)).toEqual([1.25, 3.75, 6.25, 8.75]);
+});

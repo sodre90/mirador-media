@@ -1,3 +1,5 @@
+import type { Turn } from "./geometry.ts";
+
 /** A video and what the user and the agent do with it: the source file stays as it was, the edits are a list kept here. */
 export interface MediaDocument {
   version: 1;
@@ -55,7 +57,14 @@ export interface Edits {
   speed: Setting;
   /** How many times as loud as recorded; 0 is muted. */
   volume: Setting;
+  /** The part of the frame to keep, in the source's pixels. */
+  crop: Box | null;
+  turn: Turn;
+  /** Degrees clockwise, inside the crop. */
+  straighten: number;
 }
+
+export const MAX_STRAIGHTEN = 45;
 
 export type SettingName = "exposure" | "speed" | "volume";
 
@@ -96,7 +105,7 @@ export interface Rendered {
 
 const asShot = (name: SettingName): Setting => ({ clip: SETTINGS[name].asShot, ranges: [] });
 
-export const NO_EDITS: Edits = { trim: null, cuts: [], exposure: asShot("exposure"), speed: asShot("speed"), volume: asShot("volume") };
+export const NO_EDITS: Edits = { trim: null, cuts: [], exposure: asShot("exposure"), speed: asShot("speed"), volume: asShot("volume"), crop: null, turn: 0, straighten: 0 };
 
 export const newDocument = (): MediaDocument => ({ version: 1, source: null, edits: NO_EDITS, marks: [], nextMark: 1, rendered: null });
 
@@ -146,12 +155,14 @@ function checkedSetting(value: unknown, name: SettingName, where: string): Setti
 /** Edits from before a field existed read as that field left as shot, and a setting that was one number as that clip value. */
 function checkedEdits(value: unknown, where: string): Edits {
   check(isRecord(value), `${where} needs trim and exposure`);
-  const { trim = null, cuts = [] } = value;
+  const { trim = null, cuts = [], crop = null, turn = 0, straighten = 0 } = value;
+  check(turn === 0 || turn === 90 || turn === 180 || turn === 270, `${where}: turn must be 0, 90, 180 or 270`);
+  check(isNumber(straighten) && Math.abs(straighten) <= MAX_STRAIGHTEN, `${where}: straighten must be degrees from -${MAX_STRAIGHTEN} to ${MAX_STRAIGHTEN}`);
   check(Array.isArray(cuts), `${where}: cuts must be a list`);
   const checkedCuts = cuts.map((cut, index) => checkedSpan(cut, `${where}.cuts[${index}]`));
   check(inOrder(checkedCuts), `${where}: cuts must be in order, none overlapping`);
   const settings = Object.fromEntries(SETTING_NAMES.map((name) => [name, value[name] === undefined ? asShot(name) : checkedSetting(value[name], name, where)])) as Record<SettingName, Setting>;
-  return { trim: trim === null ? null : checkedSpan(trim, `${where}.trim`), cuts: checkedCuts, ...settings };
+  return { trim: trim === null ? null : checkedSpan(trim, `${where}.trim`), cuts: checkedCuts, ...settings, crop: checkedBox(crop, `${where}.crop`), turn, straighten };
 }
 
 function checkedSource(value: unknown): Source | null {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { checkedDocument, hasEdits, newDocument, NO_EDITS, renderedName, sameEdits, type MediaDocument } from "../shared/document.ts";
+import { checkedDocument, hasEdits, newDocument, NO_EDITS, renderedName, sameEdits, type Edits, type MediaDocument } from "../shared/document.ts";
 import { applyOperation } from "../shared/operations.ts";
 
 const probe = { width: 1920, height: 1080, duration: 83.4, fps: 29.97, audio: true };
@@ -108,6 +108,24 @@ describe("applyOperation", () => {
     expect(refusal(withVideo(), { op: "exposure", ev: 1, start: 10, end: 90 })).toBe("end is past the end: clip.mp4 is 1:23.40 long.");
   });
 
+  test("crops to a box in whole source pixels kept inside the frame, turns by quarter turns and straightens by up to 45°", () => {
+    const { document, summaries } = applied(
+      withVideo(),
+      { op: "crop", x: 100.4, y: -20, width: 640, height: 500 },
+      { op: "turn", degrees: -90 },
+      { op: "straighten", degrees: -4.26 },
+    );
+    expect(document.edits).toMatchObject({ crop: { x: 100, y: 0, width: 640, height: 480 }, turn: 270, straighten: -4.3 });
+    expect(summaries).toEqual(["Cropped to x 100, y 0, 640×480 px.", "Turned 270° clockwise.", "Straightened 4.3° anticlockwise."]);
+    const undone = applied(document, { op: "uncrop" }, { op: "turn", degrees: 360 }, { op: "straighten", degrees: 0 });
+    expect(undone.document.edits).toEqual(NO_EDITS);
+    expect(undone.summaries).toEqual(["Took the crop off.", "Turned back to as shot.", "Took the straightening off."]);
+    expect(refusal(withVideo(), { op: "uncrop" })).toBe("There is no crop to take off.");
+    expect(refusal(withVideo(), { op: "crop", x: 0, y: 0, width: 1, height: 100 })).toBe("A crop keeps at least 2×2 px.");
+    expect(refusal(withVideo(), { op: "turn", degrees: 45 })).toBe("degrees must be a quarter turn clockwise: 90, 180 or 270, or 0 for as shot.");
+    expect(refusal(withVideo(), { op: "straighten", degrees: 50 })).toBe("degrees must be from -45 to 45: clockwise, or anticlockwise below 0.");
+  });
+
   test("marks a moment, a range and a box in whole source pixels kept inside the frame, numbering them for good", () => {
     const { document, summaries } = applied(
       withVideo(),
@@ -145,6 +163,9 @@ describe("applyOperation", () => {
       { op: "cut", start: 3, end: 4 },
       { op: "speed", rate: 2, start: 5, end: 6 },
       { op: "clear", edit: "speed" },
+      { op: "crop", x: 10, y: 10, width: 100, height: 100 },
+      { op: "turn", degrees: 90 },
+      { op: "straighten", degrees: 3 },
       { op: "rendered", file: "clip.edited.mp4", edits: { ...NO_EDITS, trim: { start: 1, end: 9 }, cuts: [{ start: 3, end: 4 }] } },
       { op: "source", file: "b.mp4" },
     );
@@ -181,10 +202,13 @@ describe("checkedDocument", () => {
 describe("sameEdits", () => {
   test("compares every field, whatever order its keys are in", () => {
     const edits = { ...NO_EDITS, trim: { start: 1, end: 9 }, cuts: [{ start: 3, end: 4 }] };
-    expect(sameEdits(edits, { volume: NO_EDITS.volume, speed: NO_EDITS.speed, exposure: { ranges: [], clip: 0 }, cuts: [{ end: 4, start: 3 }], trim: { end: 9, start: 1 } })).toBe(true);
+    const reordered: Edits = { straighten: 0, turn: 0, crop: null, volume: NO_EDITS.volume, speed: NO_EDITS.speed, exposure: { ranges: [], clip: 0 }, cuts: [{ end: 4, start: 3 }], trim: { end: 9, start: 1 } };
+    expect(sameEdits(edits, reordered)).toBe(true);
+    expect(sameEdits(edits, { ...edits, turn: 90 })).toBe(false);
     expect(sameEdits(edits, { ...edits, speed: { clip: 1, ranges: [{ start: 1, end: 2, value: 2 }] } })).toBe(false);
     expect(sameEdits(edits, { ...edits, cuts: [] })).toBe(false);
     expect(hasEdits(NO_EDITS)).toBe(false);
+    expect(hasEdits({ ...NO_EDITS, straighten: 1 })).toBe(true);
     expect(hasEdits({ ...NO_EDITS, cuts: [{ start: 1, end: 2 }] })).toBe(true);
   });
 });

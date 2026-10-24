@@ -1,6 +1,7 @@
 import ffprobePath from "@derhuerst/ffprobe-static";
 import ffmpegPath from "ffmpeg-static";
 import type { Edits, Probe } from "../shared/document.ts";
+import { renderedCrop, straightenZoom, type FrameEdits } from "../shared/geometry.ts";
 import { keptPieces, type Piece } from "../shared/timeline.ts";
 
 export const binaries = { ffmpeg: ffmpegPath, ffprobe: ffprobePath };
@@ -36,6 +37,24 @@ function pieceFilters({ start, end, exposure, speed, volume }: Piece, index: num
   return [`[0:v]${picture.join(",")}[v${index}]`, ...(audio ? [`[0:a]${sound.join(",")}[a${index}]`] : [])];
 }
 
+const evenUp = (pixels: number) => Math.ceil(pixels / 2) * 2;
+
+/**
+ * The frame as the preview's matrix makes it: the crop, then the straightening, zoomed in so that the tilted picture
+ * covers the crop to its corners and cut back to the crop's size about its middle, then the quarter turn.
+ */
+export function frameFilters(probe: Probe, edits: FrameEdits) {
+  const crop = renderedCrop(probe, edits);
+  const cropping = edits.crop || crop.width !== probe.width || crop.height !== probe.height ? [`crop=${crop.width}:${crop.height}:${crop.x}:${crop.y}`] : [];
+  const zoom = straightenZoom(crop, edits.straighten);
+  const straightening =
+    edits.straighten === 0
+      ? []
+      : [`scale=${evenUp(crop.width * zoom)}:${evenUp(crop.height * zoom)}`, `rotate=${((edits.straighten * Math.PI) / 180).toFixed(6)}:ow=${crop.width}:oh=${crop.height}`];
+  const turning = { 0: [], 90: ["transpose=clock"], 180: ["hflip", "vflip"], 270: ["transpose=cclock"] }[edits.turn];
+  return [...cropping, ...straightening, ...turning];
+}
+
 /**
  * ffmpeg's arguments to render the edits of `input` into `output`. It seeks to the first kept piece and reads to the end
  * of the last, takes each piece with its sound and its own looks, and joins them. An MP4 gets its index first, so it
@@ -46,7 +65,9 @@ export function renderArguments(input: string, output: string, edits: Edits, pro
   if (pieces.length === 0) throw new Error("the edits leave nothing of the video");
   const [from, to] = [pieces[0]!.start, pieces.at(-1)!.end];
   const joined = pieces.map((_, index) => `[v${index}]${probe.audio ? `[a${index}]` : ""}`).join("");
-  const graph = [...pieces.flatMap((piece, index) => pieceFilters(piece, index, from, probe)), `${joined}concat=n=${pieces.length}:v=1:a=${probe.audio ? 1 : 0}[picture]${probe.audio ? "[sound]" : ""}`].join(";");
+  const framing = frameFilters(probe, edits);
+  const concat = `${joined}concat=n=${pieces.length}:v=1:a=${probe.audio ? 1 : 0}${framing.length > 0 ? "[joined]" : "[picture]"}${probe.audio ? "[sound]" : ""}`;
+  const graph = [...pieces.flatMap((piece, index) => pieceFilters(piece, index, from, probe)), concat, ...(framing.length > 0 ? [`[joined]${framing.join(",")}[picture]`] : [])].join(";");
   const webm = /\.webm$/i.test(output);
   const video = webm ? ["-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-row-mt", "1", "-crf", "30", "-b:v", "0"] : ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18"];
   const sound = probe.audio ? ["-map", "[sound]", ...(webm ? ["-c:a", "libopus", "-b:a", "128k"] : ["-c:a", "aac", "-b:a", "192k"])] : [];

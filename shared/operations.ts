@@ -1,4 +1,4 @@
-import { checkedDocument, hasEdits, NO_EDITS, SETTING_NAMES, SETTINGS, type Box, type Edits, type MediaDocument, type Probe, type Ranged, type SettingName } from "./document.ts";
+import { checkedDocument, hasEdits, MAX_STRAIGHTEN, NO_EDITS, SETTING_NAMES, SETTINGS, type Box, type Edits, type MediaDocument, type Probe, type Ranged, type SettingName } from "./document.ts";
 import { overlaps, painted, withoutSpan, withSpan } from "./spans.ts";
 import { keptParts } from "./timeline.ts";
 import { formatTime, SETTING_FORMATS } from "./time.ts";
@@ -14,6 +14,13 @@ export type Operation =
   | { op: "volume"; level: number; start?: number; end?: number }
   /** Takes a setting's ranges off, or the parts of them from start to end, so the clip's value holds there again. */
   | { op: "clear"; edit: SettingName; start?: number; end?: number }
+  /** In the source's pixels, kept inside the frame. */
+  | { op: "crop"; x: number; y: number; width: number; height: number }
+  | { op: "uncrop" }
+  /** Quarter turns clockwise from as shot: 90, 180, 270, or 0 back; -90 is 270. */
+  | { op: "turn"; degrees: number }
+  /** Degrees clockwise, from -45 to 45, inside the crop and zoomed in to fill it. */
+  | { op: "straighten"; degrees: number }
   | { op: "mark"; at: number; end?: number | null; box?: Box | null; note: string }
   | { op: "mark-done"; mark: string; done?: boolean }
   | { op: "remove-mark"; mark: string }
@@ -123,6 +130,10 @@ function clearSetting(document: MediaDocument, operation: Record<string, unknown
   return changed(document, { edits: { ...document.edits, [name]: { ...setting, ranges } } }, `The ${name}${where} is the whole clip's again.`, [`edits.${name}`]);
 }
 
+export const describeTurn = (degrees: number) => (degrees === 0 ? "as shot" : `${degrees}° clockwise`);
+
+export const describeStraighten = (degrees: number) => `${Math.abs(degrees).toFixed(1)}° ${degrees > 0 ? "clockwise" : "anticlockwise"}`;
+
 export const describeSpan = ({ start, end }: { start: number; end: number }) => `${formatTime(start)}–${formatTime(end)}`;
 
 function boxIn(document: MediaDocument, value: unknown): Box | null {
@@ -186,6 +197,28 @@ export function applyOperation(document: MediaDocument, operation: unknown): App
       return setSetting(document, operation.op, operation);
     case "clear":
       return clearSetting(document, operation);
+    case "crop": {
+      sourceOf(document);
+      const crop = boxIn(document, operation)!;
+      if (crop.width < 2 || crop.height < 2) refuse("A crop keeps at least 2×2 px.");
+      return changed(document, { edits: { ...document.edits, crop } }, `Cropped to ${describeBox(crop)}.`, ["edits.crop"]);
+    }
+    case "uncrop":
+      if (!document.edits.crop) refuse("There is no crop to take off.");
+      return changed(document, { edits: { ...document.edits, crop: null } }, "Took the crop off.", ["edits.crop"]);
+    case "turn": {
+      sourceOf(document);
+      if (!isNumber(operation.degrees) || operation.degrees % 90 !== 0) refuse("degrees must be a quarter turn clockwise: 90, 180 or 270, or 0 for as shot.");
+      const turn = ((((operation.degrees as number) % 360) + 360) % 360) as Edits["turn"];
+      return changed(document, { edits: { ...document.edits, turn } }, turn === 0 ? "Turned back to as shot." : `Turned ${describeTurn(turn)}.`, ["edits.turn"]);
+    }
+    case "straighten": {
+      sourceOf(document);
+      if (!isNumber(operation.degrees) || Math.abs(operation.degrees) > MAX_STRAIGHTEN) refuse(`degrees must be from -${MAX_STRAIGHTEN} to ${MAX_STRAIGHTEN}: clockwise, or anticlockwise below 0.`);
+      const straighten = roundTo(operation.degrees, 1);
+      const summary = straighten === 0 ? "Took the straightening off." : `Straightened ${describeStraighten(straighten)}.`;
+      return changed(document, { edits: { ...document.edits, straighten } }, summary, ["edits.straighten"]);
+    }
     case "mark": {
       sourceOf(document);
       const at = secondsIn(document, operation.at, "at");

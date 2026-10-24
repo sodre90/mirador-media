@@ -6,6 +6,7 @@ import { binaries, PROBE_ARGUMENTS, probeFrom, runProgram } from "../host/ffmpeg
 import { probe, render } from "../host/tasks.ts";
 import type { AppTask, AppTaskContext } from "../mirador/api.ts";
 import { newDocument, type MediaDocument } from "../shared/document.ts";
+import { framed, mapped } from "../shared/geometry.ts";
 import { applyOperation } from "../shared/operations.ts";
 
 const never = new AbortController().signal;
@@ -65,6 +66,16 @@ const loudness = async (file: string, from: number, seconds: number) => {
   const report = await new Response(measured.stderr).text();
   return Number(/mean_volume: (-?[\d.]+) dB/.exec(report)![1]);
 };
+
+/** The middle of the bright pixels of a file's first frame, and the frame's size. */
+async function brightSpot(file: string) {
+  const { width, height } = await probed(file);
+  const decoded = Bun.spawn([binaries.ffmpeg!, "-hide_banner", "-loglevel", "error", "-i", file, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"]);
+  const pixels = new Uint8Array(await new Response(decoded.stdout).arrayBuffer());
+  const bright = [...pixels.keys()].filter((index) => pixels[index]! > 128).map((index) => ({ x: (index % width) + 0.5, y: Math.floor(index / width) + 0.5 }));
+  const middle = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / values.length;
+  return { width, height, x: middle(bright.map(({ x }) => x)), y: middle(bright.map(({ y }) => y)) };
+}
 
 const streamSeconds = async (file: string) => {
   const report = await runProgram(binaries.ffprobe, ["-v", "error", "-show_entries", "stream=codec_type,sample_rate:format=duration", "-of", "json", file], never);
@@ -141,6 +152,22 @@ describe("the render task", () => {
     expect(await loudness(output, 5.2, 1.6)).toBeLessThan(-80);
     expect(Math.abs((await pixelAt(output, 1)) - 128)).toBeLessThanOrEqual(8);
     expect(Math.abs((await pixelAt(output, 8)) - 64)).toBeLessThanOrEqual(8);
+  }, 60_000);
+
+  test("crops, straightens and turns the frame so that a spot lands where the preview's matrix puts it", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "media-render-"));
+    const spotted = "color=c=black:s=320x240:r=10:d=1,drawbox=x=200:y=70:w=8:h=8:color=white:t=fill";
+    await runProgram(binaries.ffmpeg, ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", spotted, "-c:v", "libvpx", "-b:v", "1M", join(folder, "clip.webm")], never);
+    const edits = { crop: { x: 60, y: 41, width: 201, height: 160 }, turn: 90 as const, straighten: 10 };
+    const operations = [{ op: "source", file: "clip.webm" }, { op: "crop", ...edits.crop }, { op: "straighten", degrees: edits.straighten }, { op: "turn", degrees: edits.turn }];
+    const document = operations.reduce((edited, operation) => applyOperation(edited, operation).document, newDocument());
+    await runTask(render, document, folder);
+    const spot = await brightSpot(join(folder, "clip.edited.webm"));
+    const { size, matrix } = framed({ width: 320, height: 240 }, edits);
+    const expected = mapped(matrix, { x: 204, y: 74 });
+    expect({ width: spot.width, height: spot.height }).toEqual(size);
+    expect(size).toEqual({ width: 160, height: 200 });
+    expect(Math.hypot(spot.x - expected.x, spot.y - expected.y)).toBeLessThan(1.5);
   }, 60_000);
 
   test("writes an MP4 for any other source, and replaces the one rendered before", async () => {

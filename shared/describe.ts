@@ -1,5 +1,6 @@
 import { changesSetting, hasEdits, renderedName, sameEdits, SETTING_NAMES, SETTINGS, type Edits, type MediaDocument, type Mark, type SettingName } from "./document.ts";
-import { describeBox, describeSpan, describeWhen } from "./operations.ts";
+import { framed } from "./geometry.ts";
+import { describeBox, describeSpan, describeStraighten, describeTurn, describeWhen } from "./operations.ts";
 import { keptParts, keptPieces, resultLength } from "./timeline.ts";
 import { formatFps, formatTime, SETTING_FORMATS } from "./time.ts";
 
@@ -11,6 +12,9 @@ export const OPERATIONS_HELP = `Operations (times in seconds into the source, bo
 - { op: "speed", rate: 0.5 }: times as fast, from 0.25 to 4; 1 is as shot, and the sound keeps its pitch
 - { op: "volume", level: 0.5 }: times as loud, from 0 (muted) to 4; 1 is as recorded
 - Exposure, speed and volume take start and end too, to set that part only: its value replaces the clip's there. { op: "clear", edit: "speed", start?, end? } takes such parts off again
+- { op: "crop", x, y, width, height } keeps that part of the frame, in the source's pixels; { op: "uncrop" }
+- { op: "straighten", degrees: 2.5 }: clockwise, or anticlockwise below 0, from -45 to 45, inside the crop and zoomed in to fill it
+- { op: "turn", degrees: 90 }: quarter turns clockwise from as shot, 90, 180 or 270; 0 turns it back. The crop comes first, then the straightening, then the turn
 - { op: "mark-done", mark: "m1" } once you dealt with a mark; done: false opens it again
 - { op: "mark", at: 39.2, end?: 44, box?: { x, y, width, height }, note: "…" }, { op: "remove-mark", mark: "m1" }`;
 
@@ -18,7 +22,10 @@ export function describeEdits(edits: Edits) {
   if (!hasEdits(edits)) return "none";
   const trim = edits.trim && `trim ${describeSpan(edits.trim)}`;
   const cuts = edits.cuts.length > 0 && `cut ${edits.cuts.map(describeSpan).join(", ")}`;
-  return [trim, cuts, ...SETTING_NAMES.map((name) => describeSetting(edits, name))].filter(Boolean).join("; ");
+  const crop = edits.crop && `crop ${describeBox(edits.crop)}`;
+  const straighten = edits.straighten !== 0 && `straightened ${describeStraighten(edits.straighten)}`;
+  const turn = edits.turn !== 0 && `turned ${describeTurn(edits.turn)}`;
+  return [trim, cuts, ...SETTING_NAMES.map((name) => describeSetting(edits, name)), crop, straighten, turn].filter(Boolean).join("; ");
 }
 
 /** The clip's value when it isn't as shot, then each range's: "exposure +1.00 EV, +2.00 EV from 0:40.00 to 0:42.00". */
@@ -47,6 +54,14 @@ function describeResultLength({ source, edits }: MediaDocument) {
   return ` The result is ${formatTime(resultLength(keptPieces(edits, source.probe.duration)))} long${parts.length > 1 ? `, in ${parts.length} pieces` : ""}.`;
 }
 
+const changesFrame = ({ crop, turn, straighten }: Edits) => crop !== null || turn !== 0 || straighten !== 0;
+
+function describeResultFrame({ source, edits }: MediaDocument) {
+  if (!source?.probe || !changesFrame(edits)) return "";
+  const { width, height } = framed(source.probe, edits).size;
+  return ` Its frame is ${width}×${height}.`;
+}
+
 function describeRendered(document: MediaDocument) {
   const { rendered, edits, source } = document;
   if (!source) return null;
@@ -61,7 +76,7 @@ export function describeDocument(document: MediaDocument) {
   const target = document.source ? renderedName(document.source.file) : "the edited file";
   return [
     describeSource(document),
-    `Edits, which the user sees at once in the preview: ${describeEdits(document.edits)}.${describeResultLength(document)}`,
+    `Edits, which the user sees at once in the preview: ${describeEdits(document.edits)}.${describeResultLength(document)}${describeResultFrame(document)}`,
     describeRendered(document),
     marks.length > 0 ? `Marks the user made, open first:\n${marks.map(describeMark).join("\n")}` : "No marks yet.",
     `When your edits are done, run app_run render: it writes ${target} next to the source, in place of the one before, and the user compares it with the source.`,

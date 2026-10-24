@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { exposureFilter, probeFrom, progressSeconds, renderArguments } from "../host/ffmpeg.ts";
+import { exposureFilter, frameFilters, probeFrom, progressSeconds, renderArguments } from "../host/ffmpeg.ts";
 import { NO_EDITS } from "../shared/document.ts";
 
 describe("renderArguments", () => {
@@ -52,6 +52,18 @@ describe("renderArguments", () => {
       "[0:v]trim=start=25:end=35,setpts=PTS-STARTPTS,format=yuv420p[v5]",
       "[0:a]atrim=start=25:end=35,asetpts=PTS-STARTPTS,volume=0[a5]",
       "[v0][a0][v1][a1][v2][a2][v3][a3][v4][a4][v5][a5]concat=n=6:v=1:a=1[picture][sound]",
+    ]);
+  });
+
+  test("crops to an even size, straightens zoomed in about the crop's middle, then turns, after the pieces are joined", () => {
+    const edits = { ...NO_EDITS, crop: { x: 101, y: 50, width: 641, height: 361 }, straighten: -3, turn: 90 as const };
+    expect(frameFilters(probe, edits)).toEqual(["crop=640:360:101:50", "scale=700:394", "rotate=-0.052360:ow=640:oh=360", "transpose=clock"]);
+    expect(frameFilters(probe, { ...NO_EDITS, turn: 180 })).toEqual(["hflip", "vflip"]);
+    expect(frameFilters({ ...probe, width: 1919 }, NO_EDITS)).toEqual(["crop=1918:1080:0:0"]);
+    expect(frameFilters(probe, NO_EDITS)).toEqual([]);
+    expect(filterGraph(renderArguments("/v/clip.mp4", "/v/out.mp4", { ...NO_EDITS, turn: 270 }, probe)).slice(-2)).toEqual([
+      "[v0][a0]concat=n=1:v=1:a=1[joined][sound]",
+      "[joined]transpose=cclock[picture]",
     ]);
   });
 

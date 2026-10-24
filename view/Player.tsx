@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent, type RefObject } from "react";
 import type { Box } from "../shared/document.ts";
-import { boxBetween, boxOnScreen, pictureRect, sourcePoint, type Rect, type Size } from "./geometry.ts";
+import { corners, cssMatrix, type FrameEdits, type Point, type Size } from "../shared/geometry.ts";
+import { boxBetween, frameOnStage, sourcePoint } from "./geometry.ts";
 
 export interface ShownBox {
   key: string;
@@ -9,32 +10,49 @@ export interface ShownBox {
   drawing?: boolean;
 }
 
-/** The picture's place in the element, kept as the pane resizes and as the video learns its size. */
-function usePictureRect(video: RefObject<HTMLVideoElement | null>) {
-  const [rect, setRect] = useState<Rect | null>(null);
+/** An element's size, kept as it resizes. */
+function useSize(element: RefObject<HTMLElement | null>) {
+  const [size, setSize] = useState<Size | null>(null);
+  useEffect(() => {
+    const observed = element.current;
+    if (!observed) return;
+    const resizes = new ResizeObserver(() => setSize({ width: observed.clientWidth, height: observed.clientHeight }));
+    resizes.observe(observed);
+    return () => resizes.disconnect();
+  }, [element]);
+  return size;
+}
+
+/** The size of the picture the video shows, as it learns it. */
+function usePictureSize(video: RefObject<HTMLVideoElement | null>) {
+  const [size, setSize] = useState<Size | null>(null);
   useEffect(() => {
     const element = video.current;
     if (!element) return;
-    const measure = () =>
-      setRect(element.videoWidth > 0 ? pictureRect({ width: element.clientWidth, height: element.clientHeight }, { width: element.videoWidth, height: element.videoHeight }) : null);
-    const resizes = new ResizeObserver(measure);
-    resizes.observe(element);
+    const measure = () => setSize(element.videoWidth > 0 ? { width: element.videoWidth, height: element.videoHeight } : null);
     element.addEventListener("loadedmetadata", measure);
+    element.addEventListener("resize", measure);
     measure();
     return () => {
-      resizes.disconnect();
       element.removeEventListener("loadedmetadata", measure);
+      element.removeEventListener("resize", measure);
     };
   }, [video]);
-  return rect;
+  return size;
 }
 
-/** The video, and over its picture the boxes of the marks at this moment; dragging across the picture draws a new box. */
+const pointsOf = (points: Point[]) => points.map(({ x, y }) => `${x},${y}`).join(" ");
+
+/**
+ * The video in the frame the edits make of it, and over it the boxes of the marks at this moment; dragging across the
+ * frame draws a new box. Boxes are in the source's pixels, so a crop, a turn or straightening moves and tilts them with
+ * the picture.
+ */
 export function Player({
   video,
   src,
   filter,
-  source,
+  frameEdits,
   boxes,
   canDraw,
   onBox,
@@ -42,57 +60,79 @@ export function Player({
   video: RefObject<HTMLVideoElement | null>;
   src: string | null;
   filter: string;
-  source: Size | null;
+  frameEdits: FrameEdits;
   boxes: ShownBox[];
   canDraw: boolean;
   onBox: (box: Box | null) => void;
 }) {
-  const picture = usePictureRect(video);
-  const [corners, setCorners] = useState<{ from: { x: number; y: number }; to: { x: number; y: number } } | null>(null);
+  const stage = useRef<HTMLDivElement>(null);
+  const stageSize = useSize(stage);
+  const picture = usePictureSize(video);
+  const frame = stageSize && picture ? frameOnStage(stageSize, picture, frameEdits) : null;
+  const [corner, setCorner] = useState<{ from: Point; to: Point } | null>(null);
   const overlay = useRef<HTMLDivElement>(null);
 
   const pointAt = (event: PointerEvent) => {
     const bounds = overlay.current!.getBoundingClientRect();
-    return sourcePoint(picture!, source!, event.clientX - bounds.left, event.clientY - bounds.top);
+    return sourcePoint(frame!, picture!, event.clientX - bounds.left, event.clientY - bounds.top);
   };
   const start = (event: PointerEvent) => {
-    if (!canDraw || !picture || !source || event.button !== 0) return;
+    if (!canDraw || !frame || event.button !== 0) return;
     overlay.current!.setPointerCapture(event.pointerId);
     const point = pointAt(event);
-    setCorners({ from: point, to: point });
+    setCorner({ from: point, to: point });
   };
-  const move = (event: PointerEvent) => corners && setCorners({ ...corners, to: pointAt(event) });
+  const move = (event: PointerEvent) => corner && setCorner({ ...corner, to: pointAt(event) });
   const end = () => {
-    if (!corners) return;
-    const box = boxBetween(corners.from, corners.to);
-    setCorners(null);
+    if (!corner) return;
+    const box = boxBetween(corner.from, corner.to);
+    setCorner(null);
     onBox(box.width >= 4 && box.height >= 4 ? box : null);
   };
 
-  const drawing: ShownBox[] = corners ? [{ key: "drawing", box: boxBetween(corners.from, corners.to), label: "", drawing: true }] : [];
+  const drawing: ShownBox[] = corner ? [{ key: "drawing", box: boxBetween(corner.from, corner.to), label: "", drawing: true }] : [];
+  const placed = frame ? { left: frame.left, top: frame.top, width: frame.width, height: frame.height } : { inset: 0 };
   return (
-    <div className="stage">
-      <video ref={video} src={src ?? undefined} crossOrigin="anonymous" preload="auto" playsInline style={{ filter }} />
-      {picture && source && (
-        <div
-          ref={overlay}
-          className={`overlay${canDraw ? " drawable" : ""}`}
-          aria-label="The frame: drag across it to draw a box"
-          onPointerDown={start}
-          onPointerMove={move}
-          onPointerUp={end}
-          onPointerCancel={() => setCorners(null)}
-        >
-          {[...boxes, ...drawing].map(({ key, box, label, drawing: inProgress }) => {
-            const { left, top, width, height } = boxOnScreen(picture, source, box);
-            return (
-              <div key={key} className={`box${inProgress ? " drawing" : ""}`} style={{ left, top, width, height }}>
-                {label && <span>{label}</span>}
-              </div>
-            );
-          })}
-        </div>
-      )}
+    <div ref={stage} className="stage">
+      <div className="frame" style={placed}>
+        <video
+          ref={video}
+          src={src ?? undefined}
+          crossOrigin="anonymous"
+          preload="auto"
+          playsInline
+          style={frame && picture ? { width: picture.width, height: picture.height, transform: cssMatrix(frame.toScreen), filter } : { visibility: "hidden" }}
+        />
+        {frame && (
+          <svg className="boxes" width={frame.width} height={frame.height}>
+            {[...boxes, ...drawing].map(({ key, box, label, drawing: inProgress }) => {
+              const points = corners(frame.toScreen, box);
+              const top = points.reduce((highest, point) => (point.y < highest.y || (point.y === highest.y && point.x < highest.x) ? point : highest));
+              return (
+                <g key={key} className={`box${inProgress ? " drawing" : ""}`}>
+                  <polygon points={pointsOf(points)} />
+                  {label && (
+                    <text x={top.x + 3} y={Math.max(12, top.y - 4)}>
+                      {label}
+                    </text>
+                  )}
+                </g>
+              );
+            })}
+          </svg>
+        )}
+        {frame && (
+          <div
+            ref={overlay}
+            className={`overlay${canDraw ? " drawable" : ""}`}
+            aria-label="The frame: drag across it to draw a box"
+            onPointerDown={start}
+            onPointerMove={move}
+            onPointerUp={end}
+            onPointerCancel={() => setCorner(null)}
+          />
+        )}
+      </div>
     </div>
   );
 }

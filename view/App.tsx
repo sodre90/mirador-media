@@ -271,7 +271,7 @@ export function App({ state }: { state: AppDocumentState<MediaDocument> }) {
     const mark = applyOperation(document, operation).document.marks.at(-1)!;
     const frame = await capturedFrame(video.current, probe, filter, mark.box);
     window.mirador.apply(operation);
-    await window.mirador.prompt(markMessage(document.source.file, probe, mark, looks.exposure, video.current.currentTime), { images: [frame] });
+    await window.mirador.prompt(markMessage(document.source.file, probe, mark, { exposure: looks.exposure, frame: previewing ? edits : NO_EDITS }, video.current.currentTime), { images: [frame] });
     setBox(null);
     setRangeStart(null);
     return mark.id;
@@ -315,7 +315,15 @@ export function App({ state }: { state: AppDocumentState<MediaDocument> }) {
         </div>
       </header>
       {problem && <p className="problem">{problem}</p>}
-      <Player video={video} src={shown && "url" in shown ? shown.url : null} filter={filter} source={probe} boxes={boxes} canDraw={mode !== "rendered" && !!probe} onBox={setBox} />
+      <Player
+        video={video}
+        src={shown && "url" in shown ? shown.url : null}
+        filter={filter}
+        frameEdits={previewing ? edits : NO_EDITS}
+        boxes={boxes}
+        canDraw={mode !== "rendered" && !!probe}
+        onBox={setBox}
+      />
       <div className="controls">
         <button type="button" aria-label="Previous frame" onClick={() => step(-1)}>
           ◀︎

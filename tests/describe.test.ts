@@ -44,6 +44,12 @@ describe("describeDocument", () => {
     expect(describeEdits(edits)).toBe("exposure +1.00 EV, +2.00 EV from 0:40.00 to 0:42.00; volume 150%, 0% (muted) from 0:38.00 to 0:42.00");
   });
 
+  test("names the crop, the straightening and the turn, and the size of the frame they make", () => {
+    const edits = { ...NO_EDITS, crop: { x: 101, y: 0, width: 1281, height: 721 }, straighten: -2.5, turn: 90 as const };
+    const described = describeDocument({ ...newDocument(), source: { file: "clip.mp4", probe }, edits });
+    expect(described).toContain("Edits, which the user sees at once in the preview: crop x 101, y 0, 1281×721 px; straightened 2.5° anticlockwise; turned 90° clockwise. Its frame is 720×1280.");
+  });
+
   test("says when the video hasn't been read yet, and when nothing is rendered", () => {
     const described = describeDocument({ ...newDocument(), source: { file: "clip.webm", probe: null } });
     expect(described).toContain("Video: clip.webm, not read yet; app_run probe reads its size, length and frame rate.");
@@ -55,7 +61,7 @@ describe("describeDocument", () => {
 describe("markMessage", () => {
   test("gives the file, the time with its frame, the box in source pixels and what the picture shows", () => {
     const mark = { id: "m3", at: 39.2, end: null, box: { x: 120, y: 80, width: 440, height: 320 }, note: "too dark here" };
-    expect(markMessage("clip.mp4", probe, mark, 0.5, 39.2)).toBe(
+    expect(markMessage("clip.mp4", probe, mark, { exposure: 0.5, frame: NO_EDITS }, 39.2)).toBe(
       "In clip.mp4 at 0:39.20 (frame 1174), in the box x 120, y 80, 440×320 px of the 1920×1080 frame: too dark here\n\n" +
         "(Mark m3. The picture is the frame at 0:39.20 with the box drawn on it in red, as the preview shows it, at exposure +0.50 EV.)",
     );
@@ -63,9 +69,16 @@ describe("markMessage", () => {
 
   test("gives a range with its frames, and a frame as shot", () => {
     const mark = { id: "m1", at: 10, end: 12.5, box: null, note: "music too loud" };
-    expect(markMessage("clip.mp4", probe, mark, 0, 12.5)).toBe(
+    expect(markMessage("clip.mp4", probe, mark, { exposure: 0, frame: NO_EDITS }, 12.5)).toBe(
       "In clip.mp4 from 0:10.00 to 0:12.50 (frames 299–374): music too loud\n\n(Mark m1. The picture is the frame at 0:12.50, as shot.)",
     );
+  });
+
+  test("says the picture is the whole frame when the preview crops, straightens or turns it", () => {
+    const mark = { id: "m2", at: 5, end: null, box: null, note: "tilted" };
+    const shown = (frame: Partial<typeof NO_EDITS>) => markMessage("clip.mp4", probe, mark, { exposure: 0, frame: { ...NO_EDITS, ...frame } }, 5);
+    expect(shown({ turn: 90 })).toEndWith("(Mark m2. The picture is the frame at 0:05.00, as shot. It is the whole frame, before the turn.)");
+    expect(shown({ crop: { x: 0, y: 0, width: 10, height: 10 }, straighten: 2, turn: 180 })).toEndWith("It is the whole frame, before the crop, the straightening and the turn.)");
   });
 });
 

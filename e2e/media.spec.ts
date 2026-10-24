@@ -53,17 +53,10 @@ async function startConversation(page: Page) {
   return page.url().match(/#\/c\/(.+)$/)![1]!;
 }
 
-/** Drags across the picture between two points given as fractions of it, as the user draws a box. */
+/** Drags across the frame between two points given as fractions of it, as the user draws a box. */
 async function drawBox(page: Page, from: [number, number], to: [number, number]) {
-  const video = view(page).locator("video");
-  const picture = await video.evaluate((element: HTMLVideoElement) => {
-    const bounds = element.getBoundingClientRect();
-    const scale = Math.min(bounds.width / element.videoWidth, bounds.height / element.videoHeight);
-    const [width, height] = [element.videoWidth * scale, element.videoHeight * scale];
-    return { left: (bounds.width - width) / 2, top: (bounds.height - height) / 2, width, height };
-  });
-  const videoBox = (await video.boundingBox())!;
-  const at = ([x, y]: [number, number]) => [videoBox.x + picture.left + picture.width * x, videoBox.y + picture.top + picture.height * y] as const;
+  const frame = (await view(page).locator(".frame").boundingBox())!;
+  const at = ([x, y]: [number, number]) => [frame.x + frame.width * x, frame.y + frame.height * y] as const;
   await page.mouse.move(...at(from));
   await page.mouse.down();
   await page.mouse.move(...at([(from[0] + to[0]) / 2, (from[1] + to[1]) / 2]));
@@ -124,6 +117,31 @@ const playback = (page: Page) =>
     .evaluate(() => ({ shownFrames: (window as RecordingWindow).shownFrames!, samples: (window as RecordingWindow).samples! }));
 
 const between = (samples: Sample[], from: number, to: number) => samples.filter(({ time }) => time > from && time < to);
+
+const sizeOf = (path: string) =>
+  execFileSync(ffprobe, ["-v", "error", "-select_streams", "v", "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", path], { encoding: "utf8" }).trim();
+
+/** The frame as the pane shows it, shrunk to 24×32 cells of their average colour, so that two pictures compare coarsely. */
+async function frameCells(page: Page) {
+  const shot = await view(page).locator(".frame").screenshot();
+  return execFileSync(ffmpeg!, ["-hide_banner", "-loglevel", "error", "-i", "pipe:0", "-vf", "scale=24:32:flags=area", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"], { input: shot });
+}
+
+function correlation(a: number[], b: number[]) {
+  const mean = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / values.length;
+  const [meanA, meanB] = [mean(a), mean(b)];
+  const spread = (values: number[], average: number) => Math.sqrt(values.reduce((sum, value) => sum + (value - average) ** 2, 0));
+  return a.reduce((sum, value, index) => sum + (value - meanA) * (b[index]! - meanB), 0) / (spread(a, meanA) * spread(b, meanB));
+}
+
+const channel = (cells: Buffer, which: number) => [...cells].filter((_, index) => index % 3 === which);
+
+/**
+ * How alike two pictures' cells are, as the least correlation of their red, green and blue. Not their difference: Chrome
+ * applies the preview's CSS brightness() to colours of its own, so a brightened preview's colours stray from the render's
+ * while its layout must match.
+ */
+const likeness = (a: Buffer, b: Buffer) => Math.min(...[0, 1, 2].map((which) => correlation(channel(a, which), channel(b, which))));
 
 test("mark 0:39 with a box and send 'too dark here'; the agent trims, cuts, slows, mutes and brightens it, the pane previews that, and the render can be compared", async ({ page }) => {
   await page.addInitScript(tapTheSound);
@@ -204,13 +222,29 @@ test("mark 0:39 with a box and send 'too dark here'; the agent trims, cuts, slow
     expect(new Set(between(samples, 40.2, 41.8).map(({ filter }) => filter))).toEqual(new Set(["brightness(4)"]));
   });
 
+  await test.step("the agent crops, turns and straightens the frame, and the user draws a box on the frame as the pane shows it", async () => {
+    expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "crop", x: 80, y: 60, width: 160, height: 120 } })).toBe("Cropped to x 80, y 60, 160×120 px.");
+    expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "turn", degrees: 90 } })).toBe("Turned 90° clockwise.");
+    await expect.poll(async () => view(page).locator(".frame").boundingBox().then((frame) => +(frame!.width / frame!.height).toFixed(2))).toBe(0.75);
+    await drawBox(page, [0, 0], [1, 0.5]);
+    await expect(view(page).locator(".composer .where")).toContainText("box 80×120 px");
+    await view(page).getByRole("button", { name: "Clear the box" }).click();
+    expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "straighten", degrees: 5 } })).toBe("Straightened 5.0° clockwise.");
+    await expect(view(page).locator(".edits")).toContainText("; crop x 80, y 60, 160×120 px; straightened 5.0° clockwise; turned 90° clockwise");
+    expect(await mirador.callCanvasTool(host, conversation, "app_state", {})).toContain("The result is 0:11.00 long, in 2 pieces. Its frame is 120×160.");
+    await view(page).getByRole("button", { name: "Source" }).click();
+    await expect.poll(async () => view(page).locator(".frame").boundingBox().then((frame) => +(frame!.width / frame!.height).toFixed(2))).toBe(1.33);
+    await view(page).getByRole("button", { name: "Preview" }).click();
+  });
+
   await test.step("the agent renders, and the user compares the rendered file with the source", async () => {
     expect(await mirador.callCanvasTool(host, conversation, "app_run", { task: "render" })).toMatch(
-      /^Rendered clip\.edited\.webm \(edits: trim 0:30\.00–0:42\.00; cut 0:33\.00–0:35\.00; exposure \+1\.00 EV, \+2\.00 EV from 0:40\.00 to 0:42\.00; speed 0\.5× from 0:35\.00 to 0:36\.00; volume 0% \(muted\) from 0:38\.00 to 0:42\.00\) in \d+ s; the user can compare it with clip\.webm in the app\.$/,
+      /^Rendered clip\.edited\.webm \(edits: trim 0:30\.00–0:42\.00; cut 0:33\.00–0:35\.00; exposure \+1\.00 EV, \+2\.00 EV from 0:40\.00 to 0:42\.00; speed 0\.5× from 0:35\.00 to 0:36\.00; volume 0% \(muted\) from 0:38\.00 to 0:42\.00; crop x 80, y 60, 160×120 px; straightened 5\.0° clockwise; turned 90° clockwise\) in \d+ s; the user can compare it with clip\.webm in the app\.$/,
     );
     const rendered = join(host.projectDir, "clip.edited.webm");
     expect(existsSync(rendered)).toBe(true);
     expect(durationOf(rendered)).toBeCloseTo(11, 0);
+    expect(sizeOf(rendered)).toBe("120x160");
     await view(page).locator("video").evaluate((element: HTMLVideoElement) => void (element.currentTime = 36));
     await view(page).getByRole("button", { name: "Rendered" }).click();
     await expect(view(page).getByLabel("Current time")).toHaveText(/^0:05\.00 \/ 0:11\.\d\d$/);
@@ -219,5 +253,15 @@ test("mark 0:39 with a box and send 'too dark here'; the agent trims, cuts, slow
     await view(page).getByRole("button", { name: "Source" }).click();
     await expect(view(page).getByLabel("Current time")).toHaveText("0:36.00 / 0:45.00");
     await expect(view(page).locator(".edits")).toHaveText(/^As shot\. Edits: trim 0:30\.00–0:42\.00; cut .* \(Preview shows them\)$/);
+  });
+
+  await test.step("the preview shows the frame as the render made it", async () => {
+    await view(page).getByRole("button", { name: "Preview" }).click();
+    await view(page).locator("video").evaluate((element: HTMLVideoElement) => void (element.currentTime = 37.05));
+    await expect(view(page).getByLabel("Current time")).toHaveText("0:37.05 / 0:45.00");
+    const previewed = await frameCells(page);
+    await view(page).getByRole("button", { name: "Rendered" }).click();
+    await expect(view(page).getByLabel("Current time")).toHaveText(/^0:06\.05 \/ 0:11\.\d\d$/);
+    await expect.poll(async () => likeness(previewed, await frameCells(page)), { timeout: 10_000 }).toBeGreaterThan(0.9);
   });
 });

@@ -1,5 +1,5 @@
 import type { Box } from "../shared/document.ts";
-import type { Size } from "./geometry.ts";
+import type { Size } from "../shared/geometry.ts";
 
 export const MARK_COLOUR = "#ff2d55";
 

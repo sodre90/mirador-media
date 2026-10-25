@@ -6,7 +6,7 @@ import ffmpeg from "ffmpeg-static";
 import ffprobe from "@derhuerst/ffprobe-static";
 
 const miradorDir = process.env.MIRADOR_DIR ?? join(import.meta.dirname, "..", "..", "visualized-claude-sessions");
-const pluginDir = join(import.meta.dirname, "..");
+const pluginDir = process.env.MEDIA_PLUGIN_DIR ?? join(import.meta.dirname, "..");
 const profileName = "media";
 
 /** Mirador's test host and helpers, from its checkout: loaded in the hooks, as Playwright also imports this file in a process that never runs them. */

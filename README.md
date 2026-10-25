@@ -43,7 +43,7 @@ bun install
 bun run build        # the view, into dist/view.js
 bun run typecheck
 bun run test         # unit tests, with real renders of generated clips
-scripts/e2e.sh       # e2e in a Mirador test host; MIRADOR_DIR names Mirador's checkout (default: ../visualized-claude-sessions)
+scripts/e2e.sh       # e2e in a Mirador test host, from a copy built in a temp folder (dist/ stays as it is); MIRADOR_DIR names Mirador's checkout (default: ../visualized-claude-sessions)
 ```
 
 To use a working copy in your own Mirador, link it into Mirador's plugin folder and restart Mirador:

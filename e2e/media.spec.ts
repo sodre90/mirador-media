@@ -2,8 +2,10 @@ import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import ffmpeg from "ffmpeg-static";
-import ffprobe from "@derhuerst/ffprobe-static";
+import { programPath } from "../host/ffmpeg-build.ts";
+
+const ffmpeg = programPath("ffmpeg");
+const ffprobe = programPath("ffprobe");
 
 const miradorDir = process.env.MIRADOR_DIR ?? join(import.meta.dirname, "..", "..", "visualized-claude-sessions");
 const pluginDir = process.env.MEDIA_PLUGIN_DIR ?? join(import.meta.dirname, "..");
@@ -24,11 +26,11 @@ const view = (page: Page) => page.frameLocator(".canvas-panel:visible .canvas-fr
  */
 function testClip(path: string) {
   const sources = ["-f", "lavfi", "-i", "testsrc2=s=320x240:r=10:d=45", "-f", "lavfi", "-i", "sine=f=440:r=48000:d=44.5"];
-  execFileSync(ffmpeg!, ["-hide_banner", "-loglevel", "error", "-y", ...sources, "-c:v", "libvpx", "-b:v", "300k", "-c:a", "libopus", path]);
+  execFileSync(ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", ...sources, "-c:v", "libvpx", "-b:v", "300k", "-c:a", "libopus", path]);
 }
 
 /** A photo of the test pattern, 320×240, as a camera would write it. */
-const testPhoto = (path: string) => execFileSync(ffmpeg!, ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=320x240", "-frames:v", "1", "-q:v", "2", path]);
+const testPhoto = (path: string) => execFileSync(ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=320x240", "-frames:v", "1", "-q:v", "2", path]);
 
 const durationOf = (path: string) => Number(execFileSync(ffprobe, ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path], { encoding: "utf8" }));
 
@@ -146,7 +148,7 @@ const sizeOf = (path: string) =>
 /** The frame as the pane shows it, shrunk to 24×32 cells of their average colour, so that two pictures compare coarsely. */
 async function frameCells(page: Page) {
   const shot = await view(page).locator(".frame").screenshot();
-  return execFileSync(ffmpeg!, ["-hide_banner", "-loglevel", "error", "-i", "pipe:0", "-vf", "scale=24:32:flags=area", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"], { input: shot });
+  return execFileSync(ffmpeg, ["-hide_banner", "-loglevel", "error", "-i", "pipe:0", "-vf", "scale=24:32:flags=area", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"], { input: shot });
 }
 
 function correlation(a: number[], b: number[]) {
@@ -397,12 +399,12 @@ test("an iPhone's HEIC photo opens upright, though no browser shows HEIC, and re
   const conversation = await startWithTheAgent(page);
   expect(await mirador.callCanvasTool(host, conversation, "app_open", { app: "media", file: "heic.media.json" })).toContain("No video or photo yet.");
   expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "source", file: "IMG_2.HEIC" } })).toBe("Opened IMG_2.HEIC.");
-  await expect(view(page).locator(".facts")).toHaveText("25×33");
-  await expect.poll(() => view(page).locator(".frame img").evaluate((image: HTMLImageElement) => `${image.naturalWidth}×${image.naturalHeight}`)).toBe("25×33");
+  await expect(view(page).locator(".facts")).toHaveText("26×34");
+  await expect.poll(() => view(page).locator(".frame img").evaluate((image: HTMLImageElement) => `${image.naturalWidth}×${image.naturalHeight}`)).toBe("26×34");
   expect(await mirador.callCanvasTool(host, conversation, "app_run", { task: "render" })).toMatch(/^Rendered IMG_2\.edited\.jpg \(edits: none\) in \d+ s; the user can compare it with IMG_2\.HEIC in the app\.$/);
-  expect(sizeOf(join(host.projectDir, "IMG_2.edited.jpg"))).toBe("25x33");
+  expect(sizeOf(join(host.projectDir, "IMG_2.edited.jpg"))).toBe("26x34");
   await view(page).getByRole("button", { name: "Compare it" }).click();
-  await expect.poll(() => view(page).locator(".frame img").evaluate((image: HTMLImageElement) => `${image.naturalWidth}×${image.naturalHeight}`)).toBe("25×33");
+  await expect.poll(() => view(page).locator(".frame img").evaluate((image: HTMLImageElement) => `${image.naturalWidth}×${image.naturalHeight}`)).toBe("26×34");
 });
 
 test("app_open on the video itself starts its document beside it, which shows the video at once", async ({ page }) => {

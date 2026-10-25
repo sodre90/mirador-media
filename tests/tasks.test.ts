@@ -43,7 +43,7 @@ async function runTask(task: AppTask<MediaDocument>, document: MediaDocument, fo
 }
 
 const firstPixel = async (file: string) => {
-  const decoded = Bun.spawn([binaries.ffmpeg!, "-hide_banner", "-loglevel", "error", "-i", file, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]);
+  const decoded = Bun.spawn([binaries.ffmpeg, "-hide_banner", "-loglevel", "error", "-i", file, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]);
   return [...new Uint8Array(await new Response(decoded.stdout).arrayBuffer()).slice(0, 3)];
 };
 
@@ -56,13 +56,13 @@ async function clipWithSound(folder: string, name: string, seconds: number, pict
 }
 
 const pixelAt = async (file: string, seconds: number) => {
-  const decoded = Bun.spawn([binaries.ffmpeg!, "-hide_banner", "-loglevel", "error", "-ss", String(seconds), "-i", file, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]);
+  const decoded = Bun.spawn([binaries.ffmpeg, "-hide_banner", "-loglevel", "error", "-ss", String(seconds), "-i", file, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]);
   return new Uint8Array(await new Response(decoded.stdout).arrayBuffer())[0]!;
 };
 
 /** How loud a part of a file's sound is on average, in dB below full scale; ffmpeg says -91 for silence. */
 const loudness = async (file: string, from: number, seconds: number) => {
-  const measured = Bun.spawn([binaries.ffmpeg!, "-hide_banner", "-nostats", "-ss", String(from), "-t", String(seconds), "-i", file, "-vn", "-af", "volumedetect", "-f", "null", "-"], { stderr: "pipe" });
+  const measured = Bun.spawn([binaries.ffmpeg, "-hide_banner", "-nostats", "-ss", String(from), "-t", String(seconds), "-i", file, "-vn", "-af", "volumedetect", "-f", "null", "-"], { stderr: "pipe" });
   const report = await new Response(measured.stderr).text();
   return Number(/mean_volume: (-?[\d.]+) dB/.exec(report)![1]);
 };
@@ -73,7 +73,7 @@ const pictureSize = async (file: string) => photoProbeFrom(await runProgram(bina
 /** The middle of the bright pixels of a file's first frame, and the frame's size. */
 async function brightSpot(file: string) {
   const { width, height } = await pictureSize(file);
-  const decoded = Bun.spawn([binaries.ffmpeg!, "-hide_banner", "-loglevel", "error", "-i", file, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"]);
+  const decoded = Bun.spawn([binaries.ffmpeg, "-hide_banner", "-loglevel", "error", "-i", file, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"]);
   const pixels = new Uint8Array(await new Response(decoded.stdout).arrayBuffer());
   const bright = [...pixels.keys()].filter((index) => pixels[index]! > 128).map((index) => ({ x: (index % width) + 0.5, y: Math.floor(index / width) + 0.5 }));
   const middle = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / values.length;
@@ -111,8 +111,17 @@ describe("the probe task", () => {
  */
 const PHONE_PHOTO = join(import.meta.dir, "fixtures", "turned.jpg");
 
-/** The phone photo as an iPhone stores one, HEIC, made from turned.jpg with macOS sips; HEIC keeps the turn as its own transform. */
+/**
+ * The phone photo as an iPhone stores one, HEIC, but 34×26 as stored: ffmpeg crops a 4:2:0 picture to even sizes, as a
+ * camera's are. Made with Pillow as turned.jpg is, then macOS sips; HEIC keeps the turn as its own transform.
+ */
 const PHONE_HEIC = join(import.meta.dir, "fixtures", "turned.heic");
+
+/**
+ * A 1600×1200 HEIC stored as 512×512 tiles, as an iPhone stores its photos, with EXIF orientation 6: white over [0, 0,
+ * 99, 99] and red over [1500, 1100, 1599, 1199] on dark grey. Made like turned.heic.
+ */
+const TILED_HEIC = join(import.meta.dir, "fixtures", "tiled.heic");
 
 describe("a photo", () => {
   test("is read at its size as shown, its EXIF orientation taken into account, and lasts no time", async () => {
@@ -147,18 +156,27 @@ describe("a photo", () => {
     copyFileSync(PHONE_HEIC, join(folder, "IMG_2.HEIC"));
     const opened = applyOperation(newDocument(), { op: "source", file: "IMG_2.HEIC" }).document;
     const { summary, document } = await runTask(probe, opened, folder);
-    expect(summary).toBe("IMG_2.HEIC is 25×33.");
+    expect(summary).toBe("IMG_2.HEIC is 26×34.");
     expect(readdirSync(folder).sort()).toEqual([".IMG_2.HEIC.png", "IMG_2.HEIC"]);
     const decodedAt = statSync(join(folder, ".IMG_2.HEIC.png")).mtimeMs;
     const brightened = applyOperation(document, { op: "exposure", ev: 1 }).document;
     expect((await runTask(render, brightened, folder)).summary).toMatch(/^Rendered IMG_2\.edited\.jpg \(edits: exposure \+1\.00 EV\) in \d+ s; /);
     expect(statSync(join(folder, ".IMG_2.HEIC.png")).mtimeMs).toBe(decodedAt);
     const rendered = join(folder, "IMG_2.edited.jpg");
-    expect(await pictureSize(rendered)).toEqual({ width: 25, height: 33, duration: 0, fps: 0, audio: false });
+    expect(await pictureSize(rendered)).toEqual({ width: 26, height: 34, duration: 0, fps: 0, audio: false });
     const spot = await brightSpot(rendered);
-    expect(Math.hypot(spot.x - 20.5, spot.y - 4)).toBeLessThan(1.5);
+    expect(Math.hypot(spot.x - 22, spot.y - 4)).toBeLessThan(1.5);
     expect(Math.abs((await firstPixel(rendered))[0]! - 96)).toBeLessThanOrEqual(8);
   }, 60_000);
+
+  test("from an iPhone, stored as tiles, is read whole and upright", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "media-photo-"));
+    copyFileSync(TILED_HEIC, join(folder, "IMG_3.HEIC"));
+    const { summary } = await runTask(probe, applyOperation(newDocument(), { op: "source", file: "IMG_3.HEIC" }).document, folder);
+    expect(summary).toBe("IMG_3.HEIC is 1200×1600.");
+    const spot = await brightSpot(join(folder, ".IMG_3.HEIC.png"));
+    expect(Math.hypot(spot.x - 1150, spot.y - 50)).toBeLessThan(1.5);
+  });
 
   test("from an iPhone is decoded again once the photo changes", async () => {
     const folder = mkdtempSync(join(tmpdir(), "media-photo-"));

@@ -1,10 +1,11 @@
-import ffprobePath from "@derhuerst/ffprobe-static";
-import ffmpegPath from "ffmpeg-static";
+import { existsSync } from "node:fs";
+import { basename } from "node:path";
 import type { Edits, Probe } from "../shared/document.ts";
 import { renderedCrop, straightenZoom, type FrameEdits, type Sizing } from "../shared/geometry.ts";
 import { keptPieces, type Piece } from "../shared/timeline.ts";
+import { buildForThisMachine, FFMPEG_VERSION, programPath, thisMachine } from "./ffmpeg-build.ts";
 
-export const binaries = { ffmpeg: ffmpegPath, ffprobe: ffprobePath };
+export const binaries = { ffmpeg: programPath("ffmpeg"), ffprobe: programPath("ffprobe") };
 
 /** The preview brightens with CSS brightness(), which multiplies each sRGB channel; the render multiplies the same way. */
 export const exposureFactor = (ev: number) => 2 ** ev;
@@ -161,8 +162,9 @@ async function eachChunk(stream: ReadableStream<string>, take: (chunk: string) =
 const lastLines = (text: string) => text.trim().split("\n").slice(-5).join("\n");
 
 /** Runs a program until it ends, killed when the signal aborts; each line it writes goes to `onLine`, and all of it is the result. */
-export async function runProgram(binary: string | null, args: string[], signal: AbortSignal, onLine: (line: string) => void = () => {}) {
-  if (!binary) throw new Error("ffmpeg-static has no binary for this machine; run bun install in the plugin's folder again");
+export async function runProgram(binary: string, args: string[], signal: AbortSignal, onLine: (line: string) => void = () => {}) {
+  if (!buildForThisMachine()) throw new Error(`there's no ffmpeg ${FFMPEG_VERSION} build for ${thisMachine}`);
+  if (!existsSync(binary)) throw new Error(`${basename(binary)} isn't installed for this machine; run bun install in the plugin's folder again`);
   if (signal.aborted) throw new Error("stopped");
   const process = Bun.spawn([binary, ...args], { stdout: "pipe", stderr: "pipe", stdin: "ignore" });
   const kill = () => process.kill();

@@ -166,7 +166,7 @@ function checkedEdits(value: unknown, where: string): Edits {
   return { trim: trim === null ? null : checkedSpan(trim, `${where}.trim`), cuts: checkedCuts, ...settings, crop: checkedBox(crop, `${where}.crop`), turn, straighten };
 }
 
-/** HEIC and HEIF photos, an iPhone's own: no browser shows them and the bundled ffmpeg can't read them. */
+/** HEIC and HEIF photos, an iPhone's own: no browser shows them. */
 export const isHeif = (file: string) => /\.(heic|heif)$/i.test(file);
 
 /** Photos the view shows in an img, and the render writes in their own format, or a HEIF photo as JPEG. */

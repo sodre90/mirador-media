@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import type { AppDocumentState } from "../mirador/api.ts";
-import { NO_EDITS, type Box, type MediaDocument } from "../shared/document.ts";
+import { NO_EDITS, shownFile, type Box, type MediaDocument } from "../shared/document.ts";
 import { markMessage } from "../shared/mark-message.ts";
 import { applyOperation } from "../shared/operations.ts";
 import { capturedFrame, exposurePreview } from "./frame.ts";
@@ -14,7 +14,7 @@ export function PhotoEditor({ state }: { state: AppDocumentState<MediaDocument> 
   const [mode, setMode] = useState<Mode>("preview");
   const [box, setBox] = useState<Box | null>(null);
   const probe = document.source?.probe ?? null;
-  const sourceUrl = useMediaUrl(document.source?.file ?? null, null);
+  const sourceUrl = useMediaUrl(document.source && shownFile(document.source), null);
   const renderedUrl = useMediaUrl(mode === "rendered" ? (document.rendered?.file ?? null) : null, document.rendered?.at);
   const shown = mode === "rendered" ? renderedUrl : sourceUrl;
   const previewing = mode === "preview";

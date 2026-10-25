@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { checkedDocument, hasEdits, newDocument, NO_EDITS, renderedName, sameEdits, type Edits, type MediaDocument } from "../shared/document.ts";
+import { checkedDocument, hasEdits, newDocument, NO_EDITS, renderedName, sameEdits, shownFile, standInName, type Edits, type MediaDocument } from "../shared/document.ts";
 import { applyOperation } from "../shared/operations.ts";
 
 const probe = { width: 1920, height: 1080, duration: 83.4, fps: 29.97, audio: true };
@@ -243,7 +243,17 @@ describe("renderedName", () => {
     expect(renderedName("clip.mp4")).toBe("clip.edited.mp4");
     expect([renderedName("IMG_1.JPG"), renderedName("a.jpeg"), renderedName("shot.png"), renderedName("p.webp")]).toEqual(["IMG_1.edited.JPG", "a.edited.jpeg", "shot.edited.png", "p.edited.webp"]);
     expect(renderedName("shots/Day 1.MOV")).toBe("shots/Day 1.edited.mp4");
+    expect([renderedName("IMG_2.HEIC"), renderedName("trip/b.heif")]).toEqual(["IMG_2.edited.jpg", "trip/b.edited.jpg"]);
     expect(renderedName("clip.webm")).toBe("clip.edited.webm");
     expect(renderedName("noextension")).toBe("noextension.edited.mp4");
+  });
+});
+
+describe("a HEIF photo's stand-in", () => {
+  test("is a PNG hidden beside it, which the view shows once the probe has made it", () => {
+    expect([standInName("IMG_2.HEIC"), standInName("trip/b.heif")]).toEqual([".IMG_2.HEIC.png", "trip/.b.heif.png"]);
+    const probe = { width: 25, height: 33, duration: 0, fps: 0, audio: false };
+    expect([shownFile({ file: "IMG_2.HEIC", probe: null }), shownFile({ file: "IMG_2.HEIC", probe })]).toEqual([null, ".IMG_2.HEIC.png"]);
+    expect(shownFile({ file: "IMG_1.JPG", probe: null })).toBe("IMG_1.JPG");
   });
 });

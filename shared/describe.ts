@@ -4,7 +4,7 @@ import { describeBox, describeSpan, describeStraighten, describeTurn, describeWh
 import { keptParts, keptPieces, resultLength } from "./timeline.ts";
 import { formatFps, formatTime, SETTING_FORMATS } from "./time.ts";
 
-const SOURCE_HELP = '- { op: "source", file: "clip.mp4" }: the video, or a .jpg, .png or .webp photo, relative to this file\'s folder';
+const SOURCE_HELP = '- { op: "source", file: "clip.mp4" }: the video, or a .jpg, .png, .webp or .heic photo, relative to this file\'s folder';
 const EXPOSURE_HELP = '- { op: "exposure", ev: 0.5 }: stops brighter, or darker below 0, from -3 to 3; 0 is as shot';
 const FRAME_HELP = [
   '- { op: "crop", x, y, width, height } keeps that part of the frame, in the source\'s pixels; { op: "uncrop" }',
@@ -85,7 +85,7 @@ function describeMark(mark: Mark, photo: boolean) {
 
 function describeSource(document: MediaDocument) {
   const { source } = document;
-  if (!source) return 'No video or photo yet. Name the one to edit, next to this file, with { op: "source", file: "clip.mp4" }; a photo is a .jpg, .png or .webp.';
+  if (!source) return 'No video or photo yet. Name the one to edit, next to this file, with { op: "source", file: "clip.mp4" }; a photo is a .jpg, .png, .webp or .heic.';
   if (isPhoto(source.file)) return source.probe ? `Photo: ${source.file}, ${source.probe.width}×${source.probe.height}.` : `Photo: ${source.file}, not read yet; app_run probe reads its size.`;
   if (!source.probe) return `Video: ${source.file}, not read yet; app_run probe reads its size, length and frame rate.`;
   const { width, height, fps, duration, audio } = source.probe;

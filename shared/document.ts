@@ -165,8 +165,17 @@ function checkedEdits(value: unknown, where: string): Edits {
   return { trim: trim === null ? null : checkedSpan(trim, `${where}.trim`), cuts: checkedCuts, ...settings, crop: checkedBox(crop, `${where}.crop`), turn, straighten };
 }
 
-/** Photos the view shows in an img, and the render writes in their own format. */
-export const isPhoto = (file: string) => /\.(jpe?g|png|webp)$/i.test(file);
+/** HEIC and HEIF photos, an iPhone's own: no browser shows them and the bundled ffmpeg can't read them. */
+export const isHeif = (file: string) => /\.(heic|heif)$/i.test(file);
+
+/** Photos the view shows in an img, and the render writes in their own format, or a HEIF photo as JPEG. */
+export const isPhoto = (file: string) => /\.(jpe?g|png|webp)$/i.test(file) || isHeif(file);
+
+/** The PNG decoded from a HEIF photo, hidden beside it, which the view shows and the render reads: IMG_1.heic has .IMG_1.heic.png. */
+export const standInName = (source: string) => source.replace(/([^/]+)$/, ".$1.png");
+
+/** The file the view shows of the source: a HEIF photo's stand-in once the probe has made it, else the source itself. */
+export const shownFile = (source: Source) => (isHeif(source.file) ? (source.probe ? standInName(source.file) : null) : source.file);
 
 function checkedSource(value: unknown): Source | null {
   if (value === null) return null;
@@ -220,10 +229,10 @@ export const changesSetting = (setting: Setting, name: SettingName) => setting.c
 
 /**
  * The rendered file's name next to the source: clip.mp4 becomes clip.edited.mp4, a WebM stays WebM so every browser plays
- * it, and a photo keeps its format.
+ * it, a photo keeps its format, and a HEIF photo becomes a JPEG, which every browser shows.
  */
 export function renderedName(source: string) {
-  const extension = isPhoto(source) ? /\.[^./]+$/.exec(source)![0] : /\.webm$/i.test(source) ? ".webm" : ".mp4";
+  const extension = isHeif(source) ? ".jpg" : isPhoto(source) ? /\.[^./]+$/.exec(source)![0] : /\.webm$/i.test(source) ? ".webm" : ".mp4";
   const stem = source.replace(/\.[^./]+$/, "");
   return `${stem}.edited${extension}`;
 }

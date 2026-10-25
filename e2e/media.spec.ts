@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import ffmpeg from "ffmpeg-static";
@@ -43,6 +43,7 @@ test.beforeAll(async () => {
   await host.start();
   testClip(join(host.projectDir, "clip.webm"));
   testPhoto(join(host.projectDir, "photo.jpg"));
+  copyFileSync(join(pluginDir, "tests", "fixtures", "turned.heic"), join(host.projectDir, "IMG_2.HEIC"));
 });
 test.afterAll(async () => {
   await host?.stop();
@@ -390,4 +391,16 @@ test("mark a box on a photo and send 'sky too bright'; the agent brightens, crop
     await mirador.chooseInSettings(page, "Theme", "Dark");
     await expect.poll(colours).toEqual(["rgb(18, 19, 23)", "rgb(228, 229, 233)"]);
   });
+});
+
+test("an iPhone's HEIC photo opens upright, though no browser shows HEIC, and renders as a JPEG", async ({ page }) => {
+  const conversation = await startWithTheAgent(page);
+  expect(await mirador.callCanvasTool(host, conversation, "app_open", { app: "media", file: "heic.media.json" })).toContain("No video or photo yet.");
+  expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "source", file: "IMG_2.HEIC" } })).toBe("Opened IMG_2.HEIC.");
+  await expect(view(page).locator(".facts")).toHaveText("25×33");
+  await expect.poll(() => view(page).locator(".frame img").evaluate((image: HTMLImageElement) => `${image.naturalWidth}×${image.naturalHeight}`)).toBe("25×33");
+  expect(await mirador.callCanvasTool(host, conversation, "app_run", { task: "render" })).toMatch(/^Rendered IMG_2\.edited\.jpg \(edits: none\) in \d+ s; the user can compare it with IMG_2\.HEIC in the app\.$/);
+  expect(sizeOf(join(host.projectDir, "IMG_2.edited.jpg"))).toBe("25x33");
+  await view(page).getByRole("button", { name: "Compare it" }).click();
+  await expect.poll(() => view(page).locator(".frame img").evaluate((image: HTMLImageElement) => `${image.naturalWidth}×${image.naturalHeight}`)).toBe("25×33");
 });

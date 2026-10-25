@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { copyFileSync, mkdtempSync, readdirSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readdirSync, statSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { binaries, PHOTO_PROBE_ARGUMENTS, photoProbeFrom, PROBE_ARGUMENTS, probeFrom, runProgram } from "../host/ffmpeg.ts";
@@ -111,6 +111,9 @@ describe("the probe task", () => {
  */
 const PHONE_PHOTO = join(import.meta.dir, "fixtures", "turned.jpg");
 
+/** The phone photo as an iPhone stores one, HEIC, made from turned.jpg with macOS sips; HEIC keeps the turn as its own transform. */
+const PHONE_HEIC = join(import.meta.dir, "fixtures", "turned.heic");
+
 describe("a photo", () => {
   test("is read at its size as shown, its EXIF orientation taken into account, and lasts no time", async () => {
     const folder = mkdtempSync(join(tmpdir(), "media-photo-"));
@@ -138,6 +141,36 @@ describe("a photo", () => {
     expect(Math.hypot(spot.x - expected.x, spot.y - expected.y)).toBeLessThan(1);
     expect(Math.abs((await firstPixel(rendered))[0]! - 96)).toBeLessThanOrEqual(8);
   }, 60_000);
+
+  test("from an iPhone, HEIC, is read through a PNG decoded beside it, turned as it is shown, and renders as JPEG", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "media-photo-"));
+    copyFileSync(PHONE_HEIC, join(folder, "IMG_2.HEIC"));
+    const opened = applyOperation(newDocument(), { op: "source", file: "IMG_2.HEIC" }).document;
+    const { summary, document } = await runTask(probe, opened, folder);
+    expect(summary).toBe("IMG_2.HEIC is 25×33.");
+    expect(readdirSync(folder).sort()).toEqual([".IMG_2.HEIC.png", "IMG_2.HEIC"]);
+    const decodedAt = statSync(join(folder, ".IMG_2.HEIC.png")).mtimeMs;
+    const brightened = applyOperation(document, { op: "exposure", ev: 1 }).document;
+    expect((await runTask(render, brightened, folder)).summary).toMatch(/^Rendered IMG_2\.edited\.jpg \(edits: exposure \+1\.00 EV\) in \d+ s; /);
+    expect(statSync(join(folder, ".IMG_2.HEIC.png")).mtimeMs).toBe(decodedAt);
+    const rendered = join(folder, "IMG_2.edited.jpg");
+    expect(await pictureSize(rendered)).toEqual({ width: 25, height: 33, duration: 0, fps: 0, audio: false });
+    const spot = await brightSpot(rendered);
+    expect(Math.hypot(spot.x - 20.5, spot.y - 4)).toBeLessThan(1.5);
+    expect(Math.abs((await firstPixel(rendered))[0]! - 96)).toBeLessThanOrEqual(8);
+  }, 60_000);
+
+  test("from an iPhone is decoded again once the photo changes", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "media-photo-"));
+    const photo = join(folder, "IMG_2.HEIC");
+    copyFileSync(PHONE_HEIC, photo);
+    const opened = applyOperation(newDocument(), { op: "source", file: "IMG_2.HEIC" }).document;
+    await runTask(probe, opened, folder);
+    const standIn = join(folder, ".IMG_2.HEIC.png");
+    utimesSync(standIn, new Date(0), new Date(0));
+    await runTask(probe, opened, folder);
+    expect(statSync(standIn).mtimeMs).toBeGreaterThan(statSync(photo).mtimeMs - 1);
+  });
 
   test("keeps a PNG as PNG and a WebP as WebP", async () => {
     const folder = mkdtempSync(join(tmpdir(), "media-photo-"));

@@ -22,6 +22,8 @@ what's wrong instead of describing it in words, and the agent changes it.
   exposure, crops, straightens and turns it, and renders `photo.edited.jpg` in the photo's own format. A phone photo
   shows upright, as its EXIF orientation says, in the pane and in the render alike. The render doesn't carry the photo's
   EXIF over, such as when and where it was taken.
+- **iPhone photos:** a HEIC or HEIF photo opens too. No browser shows HEIC and the bundled ffmpeg can't read it, so the
+  app decodes it into a hidden PNG beside it (`.IMG_1234.HEIC.png`), and renders it as a JPEG, `IMG_1234.edited.jpg`.
 
 The app's document is a `.media.json` file next to the video or photo. Ask the agent something like "open clip.mp4 in
 the media app". It opens `clip.media.json` with `app_open` and names the video with `{ op: "source", file: "clip.mp4" }`.
@@ -34,7 +36,8 @@ ffmpeg and ffprobe aren't in this repository. At install, the
 [ffmpeg-static](https://github.com/eugeneware/ffmpeg-static) and
 [@derhuerst/ffprobe-static](https://github.com/derhuerst/ffprobe-static) packages download builds for your machine from
 their own releases. Those builds are GPL, and the macOS one is built with `--enable-nonfree`, so it may not be
-redistributed. This repository never ships them.
+redistributed. This repository never ships them. HEIC photos are decoded by
+[heic-decode](https://github.com/catdad-experiments/heic-decode), with libheif compiled to WebAssembly (LGPL-3.0).
 
 ## Develop
 

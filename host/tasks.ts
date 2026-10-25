@@ -1,22 +1,24 @@
 import { existsSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { AppTask, AppTaskContext } from "../mirador/api.ts";
-import { isPhoto, renderedName, type MediaDocument } from "../shared/document.ts";
+import { isHeif, isPhoto, renderedName, type MediaDocument } from "../shared/document.ts";
 import { describeEdits } from "../shared/describe.ts";
 import { formatTime } from "../shared/time.ts";
 import { keptPieces, resultLength } from "../shared/timeline.ts";
+import { heifStandIn } from "./heif.ts";
 import { binaries, PHOTO_PROBE_ARGUMENTS, photoArguments, photoProbeFrom, PROBE_ARGUMENTS, probeFrom, progressSeconds, renderArguments, runProgram } from "./ffmpeg.ts";
 
-function sourceFile({ document, file }: AppTaskContext<MediaDocument>) {
+/** The source's name, and the file ffmpeg reads of it: a HEIF photo's PNG stand-in, decoded when it isn't up to date. */
+async function sourceFile({ document, file, signal }: AppTaskContext<MediaDocument>) {
   if (!document.source) throw new Error('there is no video or photo yet; name one with { op: "source", file: "clip.mp4" }');
   const path = file(document.source.file);
   if (!existsSync(path)) throw new Error(`${document.source.file} doesn't exist next to this file`);
-  return { name: document.source.file, path };
+  return { name: document.source.file, path: isHeif(path) ? await heifStandIn(path, signal) : path };
 }
 
 /** Reads the video or photo with ffprobe, and keeps what it read in the document. */
 async function probed(context: AppTaskContext<MediaDocument>) {
-  const { name, path } = sourceFile(context);
+  const { name, path } = await sourceFile(context);
   context.progress(null, `reading ${name}`);
   const [args, readFrom] = isPhoto(name) ? [PHOTO_PROBE_ARGUMENTS, photoProbeFrom] : [PROBE_ARGUMENTS, probeFrom];
   const read = readFrom(await runProgram(binaries.ffprobe, [...args, path], context.signal));
@@ -40,7 +42,7 @@ export const render: AppTask<MediaDocument> = {
   title: "Render the edits into a file next to the source",
   async run(context) {
     const { document, apply, progress, signal } = context;
-    const { name, path } = sourceFile(context);
+    const { name, path } = await sourceFile(context);
     const outputName = renderedName(name);
     const output = context.file(outputName);
     const partial = unfinished(output);

@@ -9,7 +9,10 @@ export interface AppHost<Document = unknown> {
   serialize(document: Document): string;
   apply(document: Document, operation: unknown): { document: Document; inverse: unknown; summary: string; touched?: string[] };
   describe(document: Document): string;
-  create?(): Document;
+  /** The document for a file the app edits, both relative to the workspace; null for the app's own document. Mirador ignores it before app_open took edited files. */
+  documentFor?(file: string): string | null;
+  /** `openedFile`, relative to the document's folder, is the file app_open was given for the document through documentFor. */
+  create?(openedFile?: string): Document;
   tasks?: Record<string, AppTask<Document>>;
 }
 

@@ -85,7 +85,7 @@ function describeMark(mark: Mark, photo: boolean) {
 
 function describeSource(document: MediaDocument) {
   const { source } = document;
-  if (!source) return 'No video or photo yet. Name the one to edit, next to this file, with { op: "source", file: "clip.mp4" }; a photo is a .jpg, .png, .webp or .heic.';
+  if (!source) return 'No video or photo yet. Name the one to edit, next to this file, with { op: "source", file: "clip.mp4" }, or app_open the video itself; a photo is a .jpg, .png, .webp or .heic.';
   if (isPhoto(source.file)) return source.probe ? `Photo: ${source.file}, ${source.probe.width}×${source.probe.height}.` : `Photo: ${source.file}, not read yet; app_run probe reads its size.`;
   if (!source.probe) return `Video: ${source.file}, not read yet; app_run probe reads its size, length and frame rate.`;
   const { width, height, fps, duration, audio } = source.probe;

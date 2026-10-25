@@ -404,3 +404,13 @@ test("an iPhone's HEIC photo opens upright, though no browser shows HEIC, and re
   await view(page).getByRole("button", { name: "Compare it" }).click();
   await expect.poll(() => view(page).locator(".frame img").evaluate((image: HTMLImageElement) => `${image.naturalWidth}×${image.naturalHeight}`)).toBe("25×33");
 });
+
+test("app_open on the video itself starts its document beside it, which shows the video at once", async ({ page }) => {
+  const conversation = await startWithTheAgent(page);
+  const opened = await mirador.callCanvasTool(host, conversation, "app_open", { app: "media", file: "clip.webm" });
+  expect(opened).toContain("Media is open on clip.media.json, the document for clip.webm; the user sees it in the canvas.");
+  expect(opened).toContain("Video: clip.webm");
+  await expect(view(page).locator(".facts")).toHaveText("320×240 · 10 fps · 0:45.00");
+  expect(JSON.parse(readFileSync(join(host.projectDir, "clip.media.json"), "utf8")).source.file).toBe("clip.webm");
+  expect(await mirador.callCanvasTool(host, conversation, "app_open", { app: "media", file: "notes.txt" })).toContain("notes.txt isn't a video or photo");
+});

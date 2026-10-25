@@ -107,7 +107,8 @@ const asShot = (name: SettingName): Setting => ({ clip: SETTINGS[name].asShot, r
 
 export const NO_EDITS: Edits = { trim: null, cuts: [], exposure: asShot("exposure"), speed: asShot("speed"), volume: asShot("volume"), crop: null, turn: 0, straighten: 0 };
 
-export const newDocument = (): MediaDocument => ({ version: 1, source: null, edits: NO_EDITS, marks: [], nextMark: 1, rendered: null });
+/** A new document, on the video or photo app_open was given for it when there is one. */
+export const newDocument = (sourceFile?: string): MediaDocument => ({ version: 1, source: sourceFile ? { file: sourceFile, probe: null } : null, edits: NO_EDITS, marks: [], nextMark: 1, rendered: null });
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const isNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
@@ -170,6 +171,18 @@ export const isHeif = (file: string) => /\.(heic|heif)$/i.test(file);
 
 /** Photos the view shows in an img, and the render writes in their own format, or a HEIF photo as JPEG. */
 export const isPhoto = (file: string) => /\.(jpe?g|png|webp)$/i.test(file) || isHeif(file);
+
+const isVideo = (file: string) => /\.(mp4|m4v|mov|webm|mkv|avi)$/i.test(file);
+
+/**
+ * The document for a video or photo app_open is given: clip.mp4 has clip.media.json beside it; null for a document
+ * itself. A video and a photo of the same name share one, whose source says which it edits.
+ */
+export function mediaDocumentFor(file: string): string | null {
+  if (/\.media\.json$/i.test(file)) return null;
+  if (!isVideo(file) && !isPhoto(file)) throw new Error(`${file} isn't a video or photo; open a .mp4, .mov, .webm, .jpg, .png, .webp or .heic, or a .media.json`);
+  return file.replace(/\.[^./]+$/, ".media.json");
+}
 
 /** The PNG decoded from a HEIF photo, hidden beside it, which the view shows and the render reads: IMG_1.heic has .IMG_1.heic.png. */
 export const standInName = (source: string) => source.replace(/([^/]+)$/, ".$1.png");

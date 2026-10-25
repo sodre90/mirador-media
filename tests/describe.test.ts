@@ -9,7 +9,7 @@ const probe = { width: 1920, height: 1080, duration: 83.4, fps: 29.97, audio: tr
 
 describe("describeDocument", () => {
   test("a document with no video tells the agent how to name one, or a photo", () => {
-    expect(describeDocument(newDocument())).toStartWith('No video or photo yet. Name the one to edit, next to this file, with { op: "source", file: "clip.mp4" }; a photo is a .jpg, .png, .webp or .heic.');
+    expect(describeDocument(newDocument())).toStartWith('No video or photo yet. Name the one to edit, next to this file, with { op: "source", file: "clip.mp4" }, or app_open the video itself; a photo is a .jpg, .png, .webp or .heic.');
   });
 
   test("names a photo and its size, its marks without a time, and only the operations a photo takes", () => {

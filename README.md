@@ -26,7 +26,9 @@ what's wrong instead of describing it in words, and the agent changes it.
   app decodes it into a hidden PNG beside it (`.IMG_1234.HEIC.png`), and renders it as a JPEG, `IMG_1234.edited.jpg`.
 
 The app's document is a `.media.json` file next to the video or photo. Ask the agent something like "open clip.mp4 in
-the media app". It opens `clip.media.json` with `app_open` and names the video with `{ op: "source", file: "clip.mp4" }`.
+the media app". It calls `app_open` on `clip.mp4`, which starts `clip.media.json` beside it on that video, or opens it
+again. A video and a photo of the same name, such as `IMG_1234.HEIC` and `IMG_1234.JPG`, share one document, and its
+source says which it edits; `{ op: "source", file: "IMG_1234.JPG" }` switches it.
 
 ## Install
 

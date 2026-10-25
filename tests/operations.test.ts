@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { checkedDocument, hasEdits, newDocument, NO_EDITS, renderedName, sameEdits, shownFile, standInName, type Edits, type MediaDocument } from "../shared/document.ts";
+import { checkedDocument, hasEdits, mediaDocumentFor, newDocument, NO_EDITS, renderedName, sameEdits, shownFile, standInName, type Edits, type MediaDocument } from "../shared/document.ts";
 import { applyOperation } from "../shared/operations.ts";
 
 const probe = { width: 1920, height: 1080, duration: 83.4, fps: 29.97, audio: true };
@@ -255,5 +255,19 @@ describe("a HEIF photo's stand-in", () => {
     const probe = { width: 25, height: 33, duration: 0, fps: 0, audio: false };
     expect([shownFile({ file: "IMG_2.HEIC", probe: null }), shownFile({ file: "IMG_2.HEIC", probe })]).toEqual([null, ".IMG_2.HEIC.png"]);
     expect(shownFile({ file: "IMG_1.JPG", probe: null })).toBe("IMG_1.JPG");
+  });
+});
+
+describe("opening on a video or photo", () => {
+  test("starts the document beside it, named after it, and leaves a document as it is", () => {
+    expect([mediaDocumentFor("clip.mp4"), mediaDocumentFor("trip/Day 1.MOV"), mediaDocumentFor("IMG_2.HEIC")]).toEqual(["clip.media.json", "trip/Day 1.media.json", "IMG_2.media.json"]);
+    expect(mediaDocumentFor("trip/clip.media.json")).toBeNull();
+    expect(() => mediaDocumentFor("notes.txt")).toThrow("notes.txt isn't a video or photo; open a .mp4, .mov, .webm, .jpg, .png, .webp or .heic, or a .media.json");
+  });
+
+  test("a document started for a file has it as its source, not read yet", () => {
+    expect(newDocument("clip.mp4").source).toEqual({ file: "clip.mp4", probe: null });
+    expect(checkedDocument(newDocument("clip.mp4"))).toEqual(newDocument("clip.mp4"));
+    expect(newDocument().source).toBeNull();
   });
 });

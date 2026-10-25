@@ -266,6 +266,18 @@ describe("a photo's render", () => {
     await Bun.write(path, withExif(await Bun.file(path).bytes(), exif));
   }
 
+  test("still comes out when the photo's EXIF can't be read, and the summary says it has none", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "media-exif-"));
+    const photo = await Bun.file(CAMERA_JPEG).bytes();
+    const tiffStart = Buffer.from(photo).indexOf("Exif\0\0") + 6;
+    photo.set([0x58, 0x58], tiffStart);
+    await Bun.write(join(folder, "IMG_6.JPG"), photo);
+    const document = [{ op: "source", file: "IMG_6.JPG" }, ...cropped].reduce((edited, operation) => applyOperation(edited, operation).document, newDocument());
+    const { summary } = await runTask(render, document, folder);
+    expect(summary).toMatch(/^Rendered IMG_6\.edited\.JPG \(edits: crop x 0, y 0, 20×30 px\) in \d+ s; its EXIF couldn't be read, so the render has none; the user can compare it with IMG_6\.JPG in the app\.$/);
+    expect(exifOf(await Bun.file(join(folder, "IMG_6.edited.JPG")).bytes())).toBeNull();
+  }, 60_000);
+
   for (const [name, rendered] of [["IMG_4.JPG", "IMG_4.edited.JPG"], ["IMG_4.HEIC", "IMG_4.edited.jpg"], ["shot.png", "shot.edited.png"], ["shot.webp", "shot.edited.webp"]] as const) {
     test(`from ${name} keeps when and where it was taken and the camera, upright and at its new size`, async () => {
       const folder = mkdtempSync(join(tmpdir(), "media-exif-"));

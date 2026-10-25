@@ -36,13 +36,26 @@ export const probe: AppTask<MediaDocument> = {
   },
 };
 
-/** ffmpeg writes no EXIF into a JPEG or WebP and only some of it into a PNG, so the render gets the photo's own, made right for it. */
-async function carryExif(photo: string, render: string, signal: AbortSignal) {
-  const exif = exifOf(await Bun.file(photo).bytes());
-  if (!exif) return;
-  const { width, height } = photoProbeFrom(await runProgram(binaries.ffprobe, [...PHOTO_PROBE_ARGUMENTS, render], signal));
-  const fitted = exifForRender(exif, { width, height });
-  if (fitted) await Bun.write(render, withExif(await Bun.file(render).bytes(), fitted));
+/**
+ * ffmpeg writes no EXIF into a JPEG or WebP and only some of it into a PNG, so the render gets the photo's own, made
+ * right for it. An EXIF it can't read or fit leaves the render without, as a note for the summary rather than no render.
+ */
+async function carryExif(photo: string, render: string, signal: AbortSignal): Promise<string> {
+  try {
+    const exif = exifOf(await Bun.file(photo).bytes());
+    if (!exif) return "";
+    const { width, height } = photoProbeFrom(await runProgram(binaries.ffprobe, [...PHOTO_PROBE_ARGUMENTS, render], signal));
+    const fitted = exifForRender(exif, { width, height });
+    if (!fitted) return "; its EXIF couldn't be read, so the render has none";
+    const rendered = await Bun.file(render).bytes();
+    const written = withExif(rendered, fitted);
+    if (written === rendered) return "; its EXIF is too big for a JPEG, so the render has none";
+    await Bun.write(render, written);
+    return "";
+  } catch (error) {
+    if (signal.aborted) throw error;
+    return `; its EXIF couldn't be read (${error instanceof Error ? error.message : String(error)}), so the render has none`;
+  }
 }
 
 /** Where the render writes until it is done, beside the file it replaces, so the old one plays until the new one is whole. */
@@ -61,10 +74,11 @@ export const render: AppTask<MediaDocument> = {
     const total = resultLength(keptPieces(edits, read.duration));
     progress(0, `rendering ${outputName}`);
     const started = Date.now();
+    let exifNote = "";
     try {
       if (isPhoto(name)) {
         await runProgram(binaries.ffmpeg, photoArguments(path, partial, edits, read), signal);
-        await carryExif(context.file(name), partial, signal);
+        exifNote = await carryExif(context.file(name), partial, signal);
       } else
         await runProgram(binaries.ffmpeg, renderArguments(path, partial, edits, read), signal, (line) => {
           const seconds = progressSeconds(line);
@@ -76,6 +90,6 @@ export const render: AppTask<MediaDocument> = {
     }
     await apply({ op: "rendered", file: outputName, edits });
     const took = Math.max(1, Math.round((Date.now() - started) / 1000));
-    return `Rendered ${outputName} (edits: ${describeEdits(edits)}) in ${took} s; the user can compare it with ${name} in the app.`;
+    return `Rendered ${outputName} (edits: ${describeEdits(edits)}) in ${took} s${exifNote}; the user can compare it with ${name} in the app.`;
   },
 };

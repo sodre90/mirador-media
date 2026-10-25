@@ -536,6 +536,11 @@ button.icon.play:hover:not(:disabled) {
 .marks .remove:focus-visible {
   visibility: visible;
 }
+@media (hover: none) {
+  .marks .remove {
+    visibility: visible;
+  }
+}
 .marks li.done {
   opacity: 0.5;
 }

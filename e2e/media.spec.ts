@@ -89,6 +89,18 @@ async function drawBox(page: Page, from: [number, number], to: [number, number])
   await page.mouse.up();
 }
 
+/** Drags a finger across the view between two points given as fractions of the element, as Chrome's touch input does. */
+async function swipe(page: Page, element: ReturnType<ReturnType<typeof view>["locator"]>, from: [number, number], to: [number, number]) {
+  const bounds = (await element.boundingBox())!;
+  const touchAt = ([x, y]: [number, number]) => [{ x: bounds.x + bounds.width * x, y: bounds.y + bounds.height * y }];
+  const touch = await page.context().newCDPSession(page);
+  await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: touchAt(from) });
+  await touch.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: touchAt([(from[0] + to[0]) / 2, (from[1] + to[1]) / 2]) });
+  await touch.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: touchAt(to) });
+  await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await touch.detach();
+}
+
 interface Sample {
   time: number;
   rate: number;
@@ -417,4 +429,30 @@ test("app_open on the video itself starts its document beside it, which shows th
   await expect(view(page).locator(".facts")).toHaveText("320×240 · 10 fps · 0:45.00");
   expect(JSON.parse(readFileSync(join(host.projectDir, "clip.media.json"), "utf8")).source.file).toBe("clip.webm");
   expect(await mirador.callCanvasTool(host, conversation, "app_open", { app: "media", file: "notes.txt" })).toContain("notes.txt isn't a video or photo");
+});
+
+test.describe("on a touchscreen, as on the phone", () => {
+  test.use({ hasTouch: true });
+
+  test("a finger scrubs the video, draws a box, and a tap sends and removes the mark", async ({ page }) => {
+    const conversation = await startWithTheAgent(page);
+    expect(await mirador.callCanvasTool(host, conversation, "app_open", { app: "media", file: "touch.media.json" })).toContain("No video or photo yet.");
+    expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "source", file: "clip.webm" } })).toBe("Opened clip.webm.");
+    await expect(view(page).locator(".facts")).toHaveText("320×240 · 10 fps · 0:45.00");
+
+    await swipe(page, view(page).locator(".tracks"), [0.1, 0.5], [0.5, 0.5]);
+    await expect(view(page).getByLabel("Current time")).toHaveText(/^0:22\.\d\d \/ 0:45\.00$/);
+
+    await swipe(page, view(page).locator(".overlay"), [0.25, 0.25], [0.75, 0.75]);
+    await expect(view(page).getByRole("button", { name: "Clear the box" })).toHaveText("▢ 160×120 ×");
+    await view(page).getByLabel("What's wrong here").fill("shaky here");
+    await view(page).getByRole("button", { name: "Send to the agent" }).tap();
+    await expect(view(page).locator(".composer [role=status]")).toHaveText("Sent to the agent as m1.");
+    await expect(page.locator(".chat-header:visible .badge")).toHaveText("idle", { timeout: 60_000 });
+
+    const remove = view(page).getByRole("button", { name: "Remove m1" });
+    await expect(remove).toBeVisible();
+    await remove.tap();
+    await expect(view(page).getByRole("list", { name: "Marks" })).toHaveCount(0);
+  });
 });

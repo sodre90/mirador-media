@@ -134,9 +134,9 @@ export function Player({
     setCorner({ from: point, to: point });
   };
   const move = (event: PointerEvent) => corner && setCorner({ ...corner, to: pointAt(event) });
-  const end = () => {
+  const end = (event: PointerEvent) => {
     if (!corner) return;
-    const box = boxBetween(corner.from, corner.to);
+    const box = boxBetween(corner.from, pointAt(event));
     setCorner(null);
     onBox(box.width >= 4 && box.height >= 4 ? box : null);
   };

@@ -169,6 +169,7 @@ header .file {
   border-radius: 8px;
 }
 .frame video,
+.frame canvas,
 .frame img {
   position: absolute;
   left: 0;

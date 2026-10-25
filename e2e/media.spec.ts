@@ -127,7 +127,7 @@ const recordPlayback = (page: Page) =>
       };
       element.requestVideoFrameCallback(each);
       const sampling = setInterval(() => {
-        samples.push({ time: element.currentTime, rate: element.playbackRate, level: recording.soundLevel?.() ?? null, filter: getComputedStyle(element).filter });
+        samples.push({ time: element.currentTime, rate: element.playbackRate, level: recording.soundLevel?.() ?? null, filter: document.querySelector(".frame canvas")?.getAttribute("data-filter") ?? "none" });
       }, 50);
       element.addEventListener("pause", () => clearInterval(sampling), { once: true });
     });
@@ -163,11 +163,13 @@ const lastThumbnailAt = async (page: Page) => Number(await view(page).locator(".
 
 const channel = (cells: Buffer, which: number) => [...cells].filter((_, index) => index % 3 === which);
 
+/** How alike two pictures' layouts are, as the least correlation of their red, green and blue. */
 /**
- * How alike two pictures' cells are, as the least correlation of their red, green and blue. Not their difference: Chrome
- * applies the preview's CSS brightness() to colours of its own, so a brightened preview's colours stray from the render's
- * while its layout must match.
+ * The mean difference of two pictures' cells, channel by channel, out of 255. The render is encoded again, so a preview
+ * as the render made it still differs by a few: under 10, where Chrome's CSS brightness() on a video differed by 28.
  */
+const difference = (a: Buffer, b: Buffer) => a.reduce((sum, value, index) => sum + Math.abs(value - b[index]!), 0) / a.length;
+
 const likeness = (a: Buffer, b: Buffer) => Math.min(...[0, 1, 2].map((which) => correlation(channel(a, which), channel(b, which))));
 
 test("mark 0:39 with a box and send 'too dark here'; the agent trims, cuts, slows, mutes and brightens it, the pane previews that, and the render can be compared", async ({ page }) => {
@@ -223,7 +225,7 @@ test("mark 0:39 with a box and send 'too dark here'; the agent trims, cuts, slow
     expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "exposure", ev: 2, start: 40, end: 42 } })).toBe("Set the exposure to +2.00 EV from 0:40.00 to 0:42.00.");
     await expect(view(page).locator(".chip")).toHaveText(["Exposure +1.00 EV×"]);
     expect(await mirador.callCanvasTool(host, conversation, "app_state", {})).toContain("The result is 0:11.00 long, in 2 pieces.");
-    await expect(view(page).locator("video")).toHaveCSS("filter", "brightness(2)");
+    await expect(view(page).locator(".frame canvas")).toHaveAttribute("data-filter", "brightness(2)");
     await expect(view(page).locator(".timeline .label")).toHaveText(["Video", "Exposure", "Speed", "Volume", "Marks"]);
     await expect(view(page).locator(".timeline .bar")).toHaveText(["+2.00 EV", "0.5×", "0% (muted)"]);
     await expect(view(page).getByLabel("m1 done")).toBeChecked();
@@ -276,7 +278,7 @@ test("mark 0:39 with a box and send 'too dark here'; the agent trims, cuts, slow
     await view(page).locator("video").evaluate((element: HTMLVideoElement) => void (element.currentTime = 36));
     await view(page).getByRole("button", { name: "Rendered" }).click();
     await expect(view(page).getByLabel("Current time")).toHaveText(/^0:05\.00 \/ 0:11\.\d\d$/);
-    await expect(view(page).locator("video")).toHaveCSS("filter", "none");
+    await expect(view(page).locator(".frame canvas")).toHaveCount(0);
     expect(await view(page).locator("video").evaluate((element: HTMLVideoElement) => element.playbackRate)).toBe(1);
     await expect(view(page).locator(".timeline .label")).toHaveText(["Video"]);
     await expect(view(page).locator(".filmstrip img")).toHaveCount(20, { timeout: 20_000 });
@@ -296,6 +298,7 @@ test("mark 0:39 with a box and send 'too dark here'; the agent trims, cuts, slow
     await view(page).getByRole("button", { name: "Rendered" }).click();
     await expect(view(page).getByLabel("Current time")).toHaveText(/^0:06\.05 \/ 0:11\.\d\d$/);
     await expect.poll(async () => likeness(previewed, await frameCells(page)), { timeout: 10_000 }).toBeGreaterThan(0.9);
+    expect(difference(previewed, await frameCells(page))).toBeLessThan(15);
   });
 });
 

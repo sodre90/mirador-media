@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent, type RefObject } from "react";
 import type { Box } from "../shared/document.ts";
 import { corners, cssMatrix, framed, type FrameEdits, type Point, type Size, type Sizing } from "../shared/geometry.ts";
 import { boxBetween, frameOnStage, sourcePoint } from "./geometry.ts";
@@ -59,6 +59,36 @@ function stageShape(picture: Size | null, frameEdits: FrameEdits, sizing: Sizing
   return { aspectRatio: `${width} / ${height}`, maxWidth: `calc(var(--stage-height) * ${width / height})` };
 }
 
+/**
+ * The video's frames drawn with the preview's filter. Chrome applies a CSS filter on a video to colours of its own, so a
+ * brightened video strays from the render; drawn on a canvas, the filter works on the frame's values, as ffmpeg does.
+ */
+function FilteredFrames({ video, filter, size, style }: { video: RefObject<HTMLVideoElement | null>; filter: string; size: Size; style: CSSProperties }) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const element = video.current;
+    const context = canvas.current?.getContext("2d");
+    if (!element || !context) return;
+    const draw = () => {
+      if (element.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
+      context.filter = filter;
+      context.drawImage(element, 0, 0, size.width, size.height);
+    };
+    let next = 0;
+    const drawEveryFrame = () => {
+      draw();
+      next = element.requestVideoFrameCallback(drawEveryFrame);
+    };
+    drawEveryFrame();
+    element.addEventListener("seeked", draw);
+    return () => {
+      element.cancelVideoFrameCallback(next);
+      element.removeEventListener("seeked", draw);
+    };
+  }, [video, filter, size.width, size.height]);
+  return <canvas ref={canvas} width={size.width} height={size.height} data-filter={filter} style={style} />;
+}
+
 const pointsOf = (points: Point[]) => points.map(({ x, y }) => `${x},${y}`).join(" ");
 
 /**
@@ -113,14 +143,18 @@ export function Player({
 
   const drawing: ShownBox[] = corner ? [{ key: "drawing", box: boxBetween(corner.from, corner.to), label: "", drawing: true }] : [];
   const placed = frame ? { left: frame.left, top: frame.top, width: frame.width, height: frame.height } : { inset: 0 };
-  const placedPicture = frame && picture ? { width: picture.width, height: picture.height, transform: cssMatrix(frame.toScreen), filter } : { visibility: "hidden" as const };
+  const placedPicture = frame && picture ? { width: picture.width, height: picture.height, transform: cssMatrix(frame.toScreen) } : { visibility: "hidden" as const };
+  const drawsFrames = element.kind === "video" && filter !== "none" && frame !== null && picture !== null;
   return (
     <div ref={stage} className="stage" style={shape}>
       <div className="frame" style={placed}>
         {element.kind === "video" ? (
-          <video ref={element.ref} src={src ?? undefined} crossOrigin="anonymous" preload="auto" playsInline style={placedPicture} />
+          <>
+            <video ref={element.ref} src={src ?? undefined} crossOrigin="anonymous" preload="auto" playsInline style={drawsFrames ? { ...placedPicture, opacity: 0 } : placedPicture} />
+            {drawsFrames && <FilteredFrames video={element.ref} filter={filter} size={picture} style={placedPicture} />}
+          </>
         ) : (
-          <img ref={element.ref} src={src ?? undefined} crossOrigin="anonymous" alt="" draggable={false} style={placedPicture} />
+          <img ref={element.ref} src={src ?? undefined} crossOrigin="anonymous" alt="" draggable={false} style={{ ...placedPicture, filter }} />
         )}
         {frame && (
           <svg className="boxes" width={frame.width} height={frame.height}>

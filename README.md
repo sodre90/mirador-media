@@ -23,7 +23,9 @@ what's wrong instead of describing it in words, and the agent changes it.
   shows upright, as its EXIF orientation says, in the pane and in the render alike. The render keeps the photo's EXIF, such
   as when and where it was taken and the camera, set upright and to its new size, without the old thumbnail.
 - **iPhone photos:** a HEIC or HEIF photo opens too. No browser shows HEIC, so the app has ffmpeg decode it into a hidden
-  PNG beside it (`.IMG_1234.HEIC.png`), and renders it as a JPEG, `IMG_1234.edited.jpg`.
+  PNG beside it (`.IMG_1234.HEIC.png`), and renders it as a JPEG, `IMG_1234.edited.jpg`. Display P3 colours keep their
+  profile. An HDR photo, PQ or HLG as some cameras shoot HEIF, is brought to SDR, and an iPhone's HDR gain map isn't
+  carried into the render.
 
 The app's document is a `.media.json` file next to the video or photo. Ask the agent something like "open clip.mp4 in
 the media app". It calls `app_open` on `clip.mp4`, which starts `clip.media.json` beside it on that video, or opens it

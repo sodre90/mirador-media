@@ -72,6 +72,11 @@ const loudness = async (file: string, from: number, seconds: number) => {
 const pictureSize = async (file: string) => photoProbeFrom(await runProgram(binaries.ffprobe, [...PHOTO_PROBE_ARGUMENTS, file], never));
 
 /** The middle of the bright pixels of a file's first frame, and the frame's size. */
+async function colourAt(file: string, x: number, y: number) {
+  const decoded = Bun.spawn([binaries.ffmpeg, "-hide_banner", "-loglevel", "error", "-i", file, "-vf", `crop=1:1:${x}:${y}`, "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]);
+  return new Uint8Array(await new Response(decoded.stdout).arrayBuffer());
+}
+
 async function brightSpot(file: string) {
   const { width, height } = await pictureSize(file);
   const decoded = Bun.spawn([binaries.ffmpeg, "-hide_banner", "-loglevel", "error", "-i", file, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"]);
@@ -124,6 +129,16 @@ const PHONE_HEIC = join(import.meta.dir, "fixtures", "turned.heic");
  */
 const TILED_HEIC = join(import.meta.dir, "fixtures", "tiled.heic");
 
+/**
+ * 64×24 HEICs made with CoreImage: Display P3 red (1, 0, 0) over [0, 0, 31, 23] beside P3 grey 0.5, 10-bit, once in
+ * Display P3 as an iPhone stores its photos, and in BT.2100 PQ and HLG, HDR, as some cameras shoot HEIF.
+ */
+const P3_HEIC = join(import.meta.dir, "fixtures", "p3-10bit.heic");
+const HDR_HEICS = { PQ: join(import.meta.dir, "fixtures", "pq-10bit.heic"), HLG: join(import.meta.dir, "fixtures", "hlg-10bit.heic") };
+
+/** turned.jpg as sips stores it in HEIC: 34×26 coded, with a clean aperture box that crops it to 33×25, turned a quarter clockwise. */
+const ODD_HEIC = join(import.meta.dir, "fixtures", "odd.heic");
+
 describe("a photo", () => {
   test("is read at its size as shown, its EXIF orientation taken into account, and lasts no time", async () => {
     const folder = mkdtempSync(join(tmpdir(), "media-photo-"));
@@ -169,6 +184,38 @@ describe("a photo", () => {
     expect(Math.hypot(spot.x - 22, spot.y - 4)).toBeLessThan(1.5);
     expect(Math.abs((await firstPixel(rendered))[0]! - 96)).toBeLessThanOrEqual(8);
   }, 60_000);
+
+  test("from an iPhone at an odd size keeps every row and column, cropped as the file says once it is turned", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "media-photo-"));
+    copyFileSync(ODD_HEIC, join(folder, "IMG_5.HEIC"));
+    const { summary } = await runTask(probe, applyOperation(newDocument(), { op: "source", file: "IMG_5.HEIC" }).document, folder);
+    expect(summary).toBe("IMG_5.HEIC is 25×33.");
+    const spot = await brightSpot(join(folder, ".IMG_5.HEIC.png"));
+    expect(Math.hypot(spot.x - 21, spot.y - 4)).toBeLessThan(1);
+  });
+
+  test("in Display P3 renders as a JPEG that keeps the profile, its colours as they were", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "media-photo-"));
+    copyFileSync(P3_HEIC, join(folder, "IMG_7.HEIC"));
+    await runTask(render, applyOperation(newDocument(), { op: "source", file: "IMG_7.HEIC" }).document, folder);
+    const rendered = join(folder, "IMG_7.edited.jpg");
+    const profileName = Buffer.from("Display P3", "utf16le").swap16();
+    expect(Buffer.from(await Bun.file(rendered).bytes()).includes(profileName)).toBe(true);
+    expect([...(await colourAt(rendered, 8, 8))].map((value) => Math.round(value / 8))).toEqual([32, 0, 0]);
+  });
+
+  for (const [transfer, photo] of Object.entries(HDR_HEICS)) {
+    test(`in HDR, ${transfer}, is brought to SDR, its SDR white and the tones under it as they were`, async () => {
+      const folder = mkdtempSync(join(tmpdir(), "media-photo-"));
+      copyFileSync(photo, join(folder, "IMG_8.HEIC"));
+      await runTask(render, applyOperation(newDocument(), { op: "source", file: "IMG_8.HEIC" }).document, folder);
+      const rendered = join(folder, "IMG_8.edited.jpg");
+      const [red, green, blue] = await colourAt(rendered, 8, 8);
+      expect(red).toBeGreaterThan(235);
+      expect(Math.max(green!, blue!)).toBeLessThan(16);
+      expect([...(await colourAt(rendered, 48, 8))].every((value) => Math.abs(value - 128) <= 4)).toBe(true);
+    });
+  }
 
   test("from an iPhone, stored as tiles, is read whole and upright", async () => {
     const folder = mkdtempSync(join(tmpdir(), "media-photo-"));

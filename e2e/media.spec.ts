@@ -46,7 +46,7 @@ test.beforeAll(async () => {
   await host.start();
   testClip(join(host.projectDir, "clip.webm"));
   testPhoto(join(host.projectDir, "photo.jpg"));
-  copyFileSync(join(pluginDir, "tests", "fixtures", "turned.heic"), join(host.projectDir, "IMG_2.HEIC"));
+  copyFileSync(join(pluginDir, "tests", "fixtures", "odd.heic"), join(host.projectDir, "IMG_2.HEIC"));
 });
 test.afterAll(async () => {
   await host?.stop();
@@ -400,13 +400,13 @@ test("an iPhone's HEIC photo opens upright, though no browser shows HEIC, and re
   const conversation = await startWithTheAgent(page);
   expect(await mirador.callCanvasTool(host, conversation, "app_open", { app: "media", file: "heic.media.json" })).toContain("No video or photo yet.");
   expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "source", file: "IMG_2.HEIC" } })).toBe("Opened IMG_2.HEIC.");
-  await expect(view(page).locator(".facts")).toHaveText("26×34");
-  await expect.poll(() => view(page).locator(".frame img").evaluate((image: HTMLImageElement) => `${image.naturalWidth}×${image.naturalHeight}`)).toBe("26×34");
+  await expect(view(page).locator(".facts")).toHaveText("25×33");
+  await expect.poll(() => view(page).locator(".frame img").evaluate((image: HTMLImageElement) => `${image.naturalWidth}×${image.naturalHeight}`)).toBe("25×33");
   expect(await mirador.callCanvasTool(host, conversation, "app_run", { task: "render" })).toMatch(/^Rendered IMG_2\.edited\.jpg \(edits: none\) in \d+ s; the user can compare it with IMG_2\.HEIC in the app\.$/);
-  expect(sizeOf(join(host.projectDir, "IMG_2.edited.jpg"))).toBe("26x34");
+  expect(sizeOf(join(host.projectDir, "IMG_2.edited.jpg"))).toBe("25x33");
   expect(exifFacts(exifOf(readFileSync(join(host.projectDir, "IMG_2.edited.jpg")))!)).toMatchObject({ orientation: 1, size: null });
   await view(page).getByRole("button", { name: "Compare it" }).click();
-  await expect.poll(() => view(page).locator(".frame img").evaluate((image: HTMLImageElement) => `${image.naturalWidth}×${image.naturalHeight}`)).toBe("26×34");
+  await expect.poll(() => view(page).locator(".frame img").evaluate((image: HTMLImageElement) => `${image.naturalWidth}×${image.naturalHeight}`)).toBe("25×33");
 });
 
 test("app_open on the video itself starts its document beside it, which shows the video at once", async ({ page }) => {

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { copyFileSync, mkdtempSync, readdirSync, statSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { exifFacts, exifForRender, exifOf, withExif } from "../host/exif.ts";
 import { binaries, PHOTO_PROBE_ARGUMENTS, photoProbeFrom, PROBE_ARGUMENTS, probeFrom, runProgram } from "../host/ffmpeg.ts";
 import { probe, render } from "../host/tasks.ts";
 import type { AppTask, AppTaskContext } from "../mirador/api.ts";
@@ -202,6 +203,35 @@ describe("a photo", () => {
       expect(Math.abs((await firstPixel(output))[0]! - 128)).toBeLessThanOrEqual(4);
     }
   }, 60_000);
+});
+
+describe("a photo's render", () => {
+  const CAMERA_JPEG = join(import.meta.dir, "fixtures", "camera.jpg");
+  const CAMERA_HEIC = join(import.meta.dir, "fixtures", "camera.heic");
+  const asTaken = { make: "Apple", model: "iPhone 15", taken: "2026:10:25 12:00:00", hasPlace: true, hasThumbnail: false };
+  const cropped = [{ op: "crop", x: 0, y: 0, width: 20, height: 30 }];
+
+  /** camera.jpg as PNG or WebP, upright, with its EXIF saying so. */
+  async function uprightCopy(folder: string, name: string) {
+    const path = join(folder, name);
+    await runProgram(binaries.ffmpeg, ["-hide_banner", "-loglevel", "error", "-i", CAMERA_JPEG, "-frames:v", "1", ...(name.endsWith(".webp") ? ["-c:v", "libwebp"] : []), path], never);
+    const exif = exifForRender(exifOf(await Bun.file(CAMERA_JPEG).bytes())!, { width: 30, height: 40 })!;
+    await Bun.write(path, withExif(await Bun.file(path).bytes(), exif));
+  }
+
+  for (const [name, rendered] of [["IMG_4.JPG", "IMG_4.edited.JPG"], ["IMG_4.HEIC", "IMG_4.edited.jpg"], ["shot.png", "shot.edited.png"], ["shot.webp", "shot.edited.webp"]] as const) {
+    test(`from ${name} keeps when and where it was taken and the camera, upright and at its new size`, async () => {
+      const folder = mkdtempSync(join(tmpdir(), "media-exif-"));
+      if (name.endsWith(".JPG")) copyFileSync(CAMERA_JPEG, join(folder, name));
+      else if (name.endsWith(".HEIC")) copyFileSync(CAMERA_HEIC, join(folder, name));
+      else await uprightCopy(folder, name);
+      const document = [{ op: "source", file: name }, ...cropped].reduce((edited, operation) => applyOperation(edited, operation).document, newDocument());
+      await runTask(render, document, folder);
+      const output = join(folder, rendered);
+      expect(await pictureSize(output)).toEqual({ width: 20, height: 30, duration: 0, fps: 0, audio: false });
+      expect(exifFacts(exifOf(await Bun.file(output).bytes())!)).toEqual({ orientation: 1, ...asTaken, size: { width: 20, height: 30 } });
+    }, 60_000);
+  }
 });
 
 describe("the render task", () => {

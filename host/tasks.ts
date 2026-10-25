@@ -5,6 +5,7 @@ import { isHeif, isPhoto, renderedName, type MediaDocument } from "../shared/doc
 import { describeEdits } from "../shared/describe.ts";
 import { formatTime } from "../shared/time.ts";
 import { keptPieces, resultLength } from "../shared/timeline.ts";
+import { exifForRender, exifOf, withExif } from "./exif.ts";
 import { heifStandIn } from "./heif.ts";
 import { binaries, PHOTO_PROBE_ARGUMENTS, photoArguments, photoProbeFrom, PROBE_ARGUMENTS, probeFrom, progressSeconds, renderArguments, runProgram } from "./ffmpeg.ts";
 
@@ -35,6 +36,15 @@ export const probe: AppTask<MediaDocument> = {
   },
 };
 
+/** ffmpeg writes no EXIF into a JPEG or WebP and only some of it into a PNG, so the render gets the photo's own, made right for it. */
+async function carryExif(photo: string, render: string, signal: AbortSignal) {
+  const exif = exifOf(await Bun.file(photo).bytes());
+  if (!exif) return;
+  const { width, height } = photoProbeFrom(await runProgram(binaries.ffprobe, [...PHOTO_PROBE_ARGUMENTS, render], signal));
+  const fitted = exifForRender(exif, { width, height });
+  if (fitted) await Bun.write(render, withExif(await Bun.file(render).bytes(), fitted));
+}
+
 /** Where the render writes until it is done, beside the file it replaces, so the old one plays until the new one is whole. */
 const unfinished = (output: string) => join(dirname(output), `.${basename(output).replace(/(\.[^.]+)$/, ".rendering$1")}`);
 
@@ -52,8 +62,10 @@ export const render: AppTask<MediaDocument> = {
     progress(0, `rendering ${outputName}`);
     const started = Date.now();
     try {
-      if (isPhoto(name)) await runProgram(binaries.ffmpeg, photoArguments(path, partial, edits, read), signal);
-      else
+      if (isPhoto(name)) {
+        await runProgram(binaries.ffmpeg, photoArguments(path, partial, edits, read), signal);
+        await carryExif(context.file(name), partial, signal);
+      } else
         await runProgram(binaries.ffmpeg, renderArguments(path, partial, edits, read), signal, (line) => {
           const seconds = progressSeconds(line);
           if (seconds !== null && total > 0) progress(Math.min(1, seconds / total), `${formatTime(seconds)} of ${formatTime(total)}`);

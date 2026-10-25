@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
+import { exifFacts, exifOf } from "../host/exif.ts";
 import { programPath } from "../host/ffmpeg-build.ts";
 
 const ffmpeg = programPath("ffmpeg");
@@ -403,6 +404,7 @@ test("an iPhone's HEIC photo opens upright, though no browser shows HEIC, and re
   await expect.poll(() => view(page).locator(".frame img").evaluate((image: HTMLImageElement) => `${image.naturalWidth}×${image.naturalHeight}`)).toBe("26×34");
   expect(await mirador.callCanvasTool(host, conversation, "app_run", { task: "render" })).toMatch(/^Rendered IMG_2\.edited\.jpg \(edits: none\) in \d+ s; the user can compare it with IMG_2\.HEIC in the app\.$/);
   expect(sizeOf(join(host.projectDir, "IMG_2.edited.jpg"))).toBe("26x34");
+  expect(exifFacts(exifOf(readFileSync(join(host.projectDir, "IMG_2.edited.jpg")))!)).toMatchObject({ orientation: 1, size: null });
   await view(page).getByRole("button", { name: "Compare it" }).click();
   await expect.poll(() => view(page).locator(".frame img").evaluate((image: HTMLImageElement) => `${image.naturalWidth}×${image.naturalHeight}`)).toBe("26×34");
 });

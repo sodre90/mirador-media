@@ -20,8 +20,8 @@ what's wrong instead of describing it in words, and the agent changes it.
 - **Marks stay as notes** on the timeline. The agent ticks each one off when it has dealt with it.
 - **Photos too:** a JPEG, PNG or WebP opens the same way. You draw a box on it and send a note; the agent sets its
   exposure, crops, straightens and turns it, and renders `photo.edited.jpg` in the photo's own format. A phone photo
-  shows upright, as its EXIF orientation says, in the pane and in the render alike. The render doesn't carry the photo's
-  EXIF over, such as when and where it was taken.
+  shows upright, as its EXIF orientation says, in the pane and in the render alike. The render keeps the photo's EXIF, such
+  as when and where it was taken and the camera, set upright and to its new size, without the old thumbnail.
 - **iPhone photos:** a HEIC or HEIF photo opens too. No browser shows HEIC, so the app has ffmpeg decode it into a hidden
   PNG beside it (`.IMG_1234.HEIC.png`), and renders it as a JPEG, `IMG_1234.edited.jpg`.
 

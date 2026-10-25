@@ -3,7 +3,7 @@ import type { AppDocumentState } from "../mirador/api.ts";
 import { NO_EDITS, shownFile, type Box, type MediaDocument } from "../shared/document.ts";
 import { markMessage } from "../shared/mark-message.ts";
 import { applyOperation } from "../shared/operations.ts";
-import { capturedFrame, exposurePreview } from "./frame.ts";
+import { exposurePreview } from "./frame.ts";
 import { BoxToggle, Composer, EditChips, Header, markNumber, MarkList, TaskResult, useMediaUrl, type Mode } from "./parts.tsx";
 import { Player, type ShownBox } from "./Player.tsx";
 
@@ -26,9 +26,8 @@ export function PhotoEditor({ state }: { state: AppDocumentState<MediaDocument> 
     if (!probe || !document.source || !image.current) throw new Error("The photo isn't read yet.");
     const operation = { op: "mark", box, note };
     const mark = applyOperation(document, operation).document.marks.at(-1)!;
-    const picture = await capturedFrame(image.current, probe, filter, mark.box);
     window.mirador.apply(operation);
-    await window.mirador.prompt(markMessage(document.source.file, probe, mark, { exposure, frame: previewing ? edits : NO_EDITS }, 0), { images: [picture] });
+    await window.mirador.prompt(markMessage(document.source.file, probe, mark, { exposure, frame: previewing ? edits : NO_EDITS }, 0));
     setBox(null);
     return mark.id;
   };

@@ -205,7 +205,7 @@ test("mark 0:39 with a box and send 'too dark here'; the agent trims, cuts, slow
     expect(await lastThumbnailAt(page)).toBeCloseTo((19.5 / 20) * 45, 0);
   });
 
-  await test.step("the user marks 0:39 with a box and sends what's wrong there, with the frame", async () => {
+  await test.step("the user marks 0:39 with a box and sends what's wrong there, without a picture", async () => {
     await view(page).locator("video").evaluate((element: HTMLVideoElement) => void (element.currentTime = 39.05));
     await expect(view(page).getByLabel("Current time")).toHaveText("0:39.05 / 0:45.00");
     await drawBox(page, [0.25, 0.25], [0.75, 0.75]);
@@ -217,10 +217,9 @@ test("mark 0:39 with a box and send 'too dark here'; the agent trims, cuts, slow
     await expect(view(page).locator(".composer [role=status]")).toHaveText("Sent to the agent as m1.");
     await expect(page.locator(".chat-header:visible .badge")).toHaveText("idle", { timeout: 60_000 });
     await expect.poll(prompts).toContain(
-      "About clip.media.json, open in Media (app_state reads it, apply changes it):\n\nIn clip.webm at 0:39.05 (frame 390), in the box x 80, y 60, 160×120 px of the 320×240 frame: too dark here",
+      "About clip.media.json, open in Media (app_state reads it, apply changes it):\n\nIn clip.webm at 0:39.05 (frame 390), in the box x 80, y 60, 160×120 px of the 320×240 frame: too dark here\n\n(Mark m1, made on the frame at 0:39.05 as shot. To see it, take that frame from clip.webm, as with ffmpeg.)",
     );
-    const sent = page.locator(".timeline:visible .message.user").last();
-    await expect.poll(() => sent.locator(".message-images img").evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(320);
+    await expect(page.locator(".timeline:visible .message.user").last().locator(".message-images img")).toHaveCount(0);
     expect(await mirador.callCanvasTool(host, conversation, "app_state", {})).toContain("- m1 at 0:39.05, box x 80, y 60, 160×120 px: too dark here");
     await expect(view(page).locator(".box")).toHaveCount(1);
   });
@@ -332,7 +331,7 @@ test("mark a box on a photo and send 'sky too bright'; the agent brightens, crop
     await expect(view(page).getByRole("button", { name: "Start a range here" })).toHaveCount(0);
   });
 
-  await test.step("the user draws a box on the photo and sends what's wrong there, with the photo", async () => {
+  await test.step("the user draws a box on the photo and sends what's wrong there, without a picture", async () => {
     await drawBox(page, [0.25, 0.25], [0.75, 0.75]);
     await expect(view(page).getByRole("button", { name: "Clear the box" })).toHaveText("▢ 160×120 ×");
     const note = view(page).getByLabel("What's wrong here");
@@ -348,10 +347,9 @@ test("mark a box on a photo and send 'sky too bright'; the agent brightens, crop
     await expect(view(page).locator(".composer [role=status]")).toHaveText("Sent to the agent as m1.");
     await expect(page.locator(".chat-header:visible .badge")).toHaveText("idle", { timeout: 60_000 });
     await expect.poll(prompts).toContain(
-      "About photo.media.json, open in Media (app_state reads it, apply changes it):\n\nIn photo.jpg, in the box x 80, y 60, 160×120 px of the 320×240 photo: sky too bright\non the left\nkeep the clouds\n\n(Mark m1. The picture is the photo with the box drawn on it in red, as shot.)",
+      "About photo.media.json, open in Media (app_state reads it, apply changes it):\n\nIn photo.jpg, in the box x 80, y 60, 160×120 px of the 320×240 photo: sky too bright\non the left\nkeep the clouds\n\n(Mark m1, made on the photo as shot. To see it, open photo.jpg.)",
     );
-    const sent = page.locator(".timeline:visible .message.user").last();
-    await expect.poll(() => sent.locator(".message-images img").evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(320);
+    await expect(page.locator(".timeline:visible .message.user").last().locator(".message-images img")).toHaveCount(0);
     expect(await mirador.callCanvasTool(host, conversation, "app_state", {})).toContain("- m1 box x 80, y 60, 160×120 px: sky too bright\non the left\nkeep the clouds");
     await expect(note).toHaveValue("");
     expect(await view(page).locator(".marks .note").evaluate((element: HTMLElement) => element.innerText)).toBe("sky too bright\non the left\nkeep the clouds");

@@ -112,36 +112,37 @@ describe("wholeClipEdits", () => {
 });
 
 describe("markMessage", () => {
-  test("gives the file, the time with its frame, the box in source pixels and what the picture shows", () => {
+  test("gives the file, the time with its frame, the box in source pixels and how the user saw it, and how to see it", () => {
     const mark = { id: "m3", at: 39.2, end: null, box: { x: 120, y: 80, width: 440, height: 320 }, note: "too dark here" };
     expect(markMessage("clip.mp4", probe, mark, { exposure: 0.5, frame: NO_EDITS }, 39.2)).toBe(
       "In clip.mp4 at 0:39.20 (frame 1174), in the box x 120, y 80, 440×320 px of the 1920×1080 frame: too dark here\n\n" +
-        "(Mark m3. The picture is the frame at 0:39.20 with the box drawn on it in red, as the preview shows it, at exposure +0.50 EV.)",
+        "(Mark m3, made on the frame at 0:39.20 at exposure +0.50 EV. To see it, take that frame from clip.mp4, as with ffmpeg.)",
     );
   });
 
   test("gives a range with its frames, and a frame as shot", () => {
     const mark = { id: "m1", at: 10, end: 12.5, box: null, note: "music too loud" };
     expect(markMessage("clip.mp4", probe, mark, { exposure: 0, frame: NO_EDITS }, 12.5)).toBe(
-      "In clip.mp4 from 0:10.00 to 0:12.50 (frames 299–374): music too loud\n\n(Mark m1. The picture is the frame at 0:12.50, as shot.)",
+      "In clip.mp4 from 0:10.00 to 0:12.50 (frames 299–374): music too loud\n\n(Mark m1, made on the frame at 0:12.50 as shot. To see it, take that frame from clip.mp4, as with ffmpeg.)",
     );
   });
 
-  test("says where on a photo, with no time, and that the picture is the whole photo", () => {
+  test("says where on a photo, with no time, and to open the photo to see it", () => {
     const photo = { width: 4032, height: 3024, duration: 0, fps: 0, audio: false };
     const mark = { id: "m1", at: 0, end: null, box: { x: 10, y: 20, width: 300, height: 200 }, note: "sky too bright" };
     expect(markMessage("IMG_1.JPG", photo, mark, { exposure: -1, frame: { ...NO_EDITS, turn: 90 } }, 0)).toBe(
       "In IMG_1.JPG, in the box x 10, y 20, 300×200 px of the 4032×3024 photo: sky too bright\n\n" +
-        "(Mark m1. The picture is the photo with the box drawn on it in red, as the preview shows it, at exposure -1.00 EV. It is the whole frame, before the turn.)",
+        "(Mark m1, made on the photo at exposure -1.00 EV. The box is in the whole frame, before the turn. To see it, open IMG_1.JPG.)",
     );
-    expect(markMessage("shot.png", photo, { ...mark, box: null }, { exposure: 0, frame: NO_EDITS }, 0)).toBe("In shot.png: sky too bright\n\n(Mark m1. The picture is the photo, as shot.)");
+    expect(markMessage("shot.png", photo, { ...mark, box: null }, { exposure: 0, frame: NO_EDITS }, 0)).toBe("In shot.png: sky too bright\n\n(Mark m1, made on the photo as shot. To see it, open shot.png.)");
   });
 
-  test("says the picture is the whole frame when the preview crops, straightens or turns it", () => {
-    const mark = { id: "m2", at: 5, end: null, box: null, note: "tilted" };
-    const shown = (frame: Partial<typeof NO_EDITS>) => markMessage("clip.mp4", probe, mark, { exposure: 0, frame: { ...NO_EDITS, ...frame } }, 5);
-    expect(shown({ turn: 90 })).toEndWith("(Mark m2. The picture is the frame at 0:05.00, as shot. It is the whole frame, before the turn.)");
-    expect(shown({ crop: { x: 0, y: 0, width: 10, height: 10 }, straighten: 2, turn: 180 })).toEndWith("It is the whole frame, before the crop, the straightening and the turn.)");
+  test("says the box is in the whole frame when the preview crops, straightens or turns it, and leaves that out without a box", () => {
+    const mark = { id: "m2", at: 5, end: null, box: { x: 0, y: 0, width: 8, height: 8 }, note: "tilted" };
+    const shown = (frame: Partial<typeof NO_EDITS>, box: typeof mark.box | null = mark.box) => markMessage("clip.mp4", probe, { ...mark, box }, { exposure: 0, frame: { ...NO_EDITS, ...frame } }, 5);
+    expect(shown({ turn: 90 })).toEndWith("(Mark m2, made on the frame at 0:05.00 as shot. The box is in the whole frame, before the turn. To see it, take that frame from clip.mp4, as with ffmpeg.)");
+    expect(shown({ crop: { x: 0, y: 0, width: 10, height: 10 }, straighten: 2, turn: 180 })).toContain("The box is in the whole frame, before the crop, the straightening and the turn.");
+    expect(shown({ turn: 90 }, null)).not.toContain("The box is");
   });
 });
 

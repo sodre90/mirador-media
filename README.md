@@ -5,8 +5,8 @@ what's wrong instead of describing it in words, and the agent changes it.
 
 - **Watch the video** in a canvas tab. Play it, scrub through it and step one frame at a time.
 - **Mark where:** a moment or a range, and maybe a box drawn on the frame. Type what's wrong there and send it. The agent
-  gets the file, the time and frame number, the box in the source's pixels, and the frame itself with the box drawn on it.
-  On a touchscreen, such as the phone's, a finger scrubs, draws the box and removes marks.
+  gets the file, the time and frame number and the box in the source's pixels, as words: it looks at the frame itself
+  when it needs to see it. On a touchscreen, such as the phone's, a finger scrubs, draws the box and removes marks.
 - **The agent edits** with operations: trim, cut a part out, and set the exposure, speed and volume, for the whole clip
   or for a range, whose value then replaces the clip's there. It crops the frame, straightens it by up to 45° and turns
   it by quarter turns, for the whole clip. The source file stays as it was. The edits are a list in the app's document,

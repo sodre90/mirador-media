@@ -14,23 +14,22 @@ export interface MarkToSend {
 function framingNote({ crop, straighten, turn }: FrameEdits) {
   const framing = [crop && "the crop", straighten !== 0 && "the straightening", turn !== 0 && "the turn"].filter(Boolean);
   if (framing.length === 0) return "";
-  return ` It is the whole frame, before ${framing.length > 1 ? `${framing.slice(0, -1).join(", ")} and ${framing.at(-1)}` : framing[0]}.`;
+  return ` The box is in the whole frame, before ${framing.length > 1 ? `${framing.slice(0, -1).join(", ")} and ${framing.at(-1)}` : framing[0]}.`;
 }
 
 /**
- * What the agent reads with the marked frame: the file, the time and its frame number, the box in the source's pixels,
- * and how the picture was shown, so it needn't guess any of them from the user's words. The picture is always the whole
- * frame, so that the box's pixels are the picture's.
+ * What the agent reads about a mark: the file, the time and its frame number, the box in the source's pixels, and how
+ * the user saw it, so it needn't guess any of them from the user's words. No picture goes with it: the agent looks at
+ * the file itself when it needs to see.
  */
 export function markMessage(file: string, probe: Probe, mark: MarkToSend, shown: { exposure: number; frame: FrameEdits }, frameTime: number) {
-  const asShown = `${shown.exposure !== 0 ? `as the preview shows it, at exposure ${formatExposure(shown.exposure)}` : "as shot"}.${framingNote(shown.frame)}`;
+  const asShown = `${shown.exposure !== 0 ? `at exposure ${formatExposure(shown.exposure)}` : "as shot"}.${mark.box ? framingNote(shown.frame) : ""}`;
   if (isPhoto(file)) {
     const where = mark.box ? `, in the box ${describeBox(mark.box)} of the ${probe.width}×${probe.height} photo` : "";
-    return `In ${file}${where}: ${mark.note}\n\n(Mark ${mark.id}. The picture is the photo${mark.box ? " with the box drawn on it in red" : ""}, ${asShown})`;
+    return `In ${file}${where}: ${mark.note}\n\n(Mark ${mark.id}, made on the photo ${asShown} To see it, open ${file}.)`;
   }
   const frames = (seconds: number) => frameAt(seconds, probe.fps);
   const when = mark.end === null ? `at ${formatTime(mark.at)} (frame ${frames(mark.at)})` : `from ${formatTime(mark.at)} to ${formatTime(mark.end)} (frames ${frames(mark.at)}–${frames(mark.end)})`;
   const where = mark.box ? `, in the box ${describeBox(mark.box)} of the ${probe.width}×${probe.height} frame` : "";
-  const picture = `The picture is the frame at ${formatTime(frameTime)}${mark.box ? " with the box drawn on it in red" : ""}, ${asShown}`;
-  return `In ${file} ${when}${where}: ${mark.note}\n\n(Mark ${mark.id}. ${picture})`;
+  return `In ${file} ${when}${where}: ${mark.note}\n\n(Mark ${mark.id}, made on the frame at ${formatTime(frameTime)} ${asShown} To see it, take that frame from ${file}, as with ffmpeg.)`;
 }

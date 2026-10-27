@@ -5,6 +5,13 @@ import { Composer, useMediaUrl } from "./parts.tsx";
 
 export const itemMessage = ({ label, file }: Item, note: string) => `About ${label} (${file}): ${note.trim()}`;
 
+const describeChoice = ({ group, label, file }: Item) => `- ${group ? `${group}: ` : ""}${label} (${file})`;
+
+export function choicesMessage(items: Item[], note: string) {
+  const choices = `My choices:\n${items.filter((item) => item.chosen).map(describeChoice).join("\n")}`;
+  return note.trim() === "" ? choices : `${choices}\n\n${note.trim()}`;
+}
+
 /** Only one file plays at a time, so that the user compares them one after another. */
 function pauseTheOthers(event: SyntheticEvent<HTMLMediaElement>) {
   for (const element of document.querySelectorAll<HTMLMediaElement>("audio, video")) if (element !== event.currentTarget) element.pause();
@@ -39,11 +46,15 @@ function ChooseButton({ item }: { item: Item }) {
 /** The files the agent listed, in their groups, each played in place; the one picked, or played last, is what the note is about. */
 export function ItemsGrid({ items }: { items: Item[] }) {
   const [picked, setPicked] = useState<Item | null>(null);
-  const current = picked && items.find((item) => item.file === picked.file);
+  const current = (picked && items.find((item) => item.file === picked.file)) ?? null;
   const send = async (note: string) => {
     if (!current) throw new Error("Pick a file first.");
     await window.mirador.prompt(itemMessage(current, note));
     return `Sent to the agent, about ${current.label}.`;
+  };
+  const sendChoices = async (note: string) => {
+    await window.mirador.prompt(choicesMessage(items, note));
+    return "Sent your choices to the agent.";
   };
   return (
     <main className="items">
@@ -72,7 +83,13 @@ export function ItemsGrid({ items }: { items: Item[] }) {
           </ul>
         </section>
       ))}
-      {current ? <Composer marked={<span className="hint">About {current.label}</span>} send={send} question={`What about ${current.label}`} /> : <p className="hint pick-hint">Play or pick one to tell the agent about it.</p>}
+      <Composer
+        marked={<span className="hint">{current ? `About ${current.label}` : "Play or pick one to write about it"}</span>}
+        send={send}
+        ready={current !== null}
+        question={current ? `What about ${current.label}` : "A note with your choices"}
+        alsoSend={{ label: "Send my choices", enabled: items.some((item) => item.chosen), send: sendChoices }}
+      />
     </main>
   );
 }

@@ -447,7 +447,15 @@ test("the agent lists takes and a clip to choose from; they play in place, one a
   const [low, high] = [view(page).locator("audio").nth(0), view(page).locator("audio").nth(1)];
   await expect.poll(() => low.evaluate((audio: HTMLAudioElement) => Math.round(audio.duration))).toBe(1);
   await expect.poll(() => view(page).locator("video").evaluate((video: HTMLVideoElement) => Math.round(video.duration))).toBe(45);
-  await expect(view(page).getByText("Play or pick one to tell the agent about it.")).toBeVisible();
+  await expect(view(page).getByText("Play or pick one to write about it")).toBeVisible();
+  await expect(view(page).getByRole("button", { name: "Send my choices" })).toBeDisabled();
+  await expect(view(page).getByRole("button", { name: "Send to the agent" })).toBeDisabled();
+  await view(page).getByRole("button", { name: "Choose Clip for Video" }).click();
+  await expect(view(page).getByRole("button", { name: "Send my choices" })).toBeEnabled();
+  await view(page).getByLabel("A note with your choices").fill("keep it short");
+  await view(page).getByLabel("A note with your choices").press("Enter");
+  await expect.poll(prompts).toContain("My choices:\n- Video: Clip (clip.webm)\n\nkeep it short");
+  await expect(page.locator(".chat-header:visible .badge")).toHaveText("idle", { timeout: 60_000 });
 
   await low.evaluate((audio: HTMLAudioElement) => audio.play());
   await expect(view(page).locator(".pick", { hasText: "Low" })).toHaveAttribute("aria-pressed", "true");
@@ -460,11 +468,15 @@ test("the agent lists takes and a clip to choose from; they play in place, one a
   await view(page).getByRole("button", { name: "Choose Low for Narrator" }).click();
   await expect(view(page).getByRole("button", { name: "Choose Low for Narrator" })).toHaveAttribute("aria-pressed", "true");
   await expect(view(page).getByRole("button", { name: "Choose high.mp3 for Narrator" })).toHaveAttribute("aria-pressed", "false");
-  await view(page).getByRole("button", { name: "Choose Clip for Video" }).click();
   await expect(view(page).locator(".item.chosen .pick strong")).toHaveText(["Low", "Clip"]);
   const state = await mirador.callCanvasTool(host, conversation, "app_state", {});
   expect(state).toContain("- Low (takes/low.wav) (chosen)\n- takes/high.mp3\n");
   expect(state).toMatch(/\d+\. user: Chose Low for Narrator\./);
+  await view(page).getByRole("button", { name: "Send my choices" }).click();
+  await expect(view(page).locator(".composer [role=status]")).toHaveText("Sent your choices to the agent.");
+  await expect.poll(prompts).toContain("My choices:\n- Narrator: Low (takes/low.wav)\n- Video: Clip (clip.webm)");
+  await expect(page.locator(".chat-header:visible .badge")).toHaveText("idle", { timeout: 60_000 });
+  await expect(page.locator(".chat-header:visible .badge")).toHaveText("idle", { timeout: 60_000 });
 
   await view(page).locator(".pick", { hasText: "Low" }).click();
   await view(page).getByLabel("What about Low").fill("warmer than the others");

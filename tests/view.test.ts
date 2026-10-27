@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildView } from "../scripts/build-view.ts";
 import { NO_EDITS } from "../shared/document.ts";
+import { choicesMessage } from "../view/ItemsGrid.tsx";
 import { boxBetween, frameOnStage, sourcePoint } from "../view/geometry.ts";
 import { formatTick, rulerTicks } from "../view/scale.ts";
 import { thumbnailTimes } from "../view/thumbnails.ts";
@@ -74,4 +75,17 @@ describe("the timeline's ruler", () => {
 
 test("the filmstrip shows the middle of each equal part of the video", () => {
   expect(thumbnailTimes(10, 4)).toEqual([1.25, 3.75, 6.25, 8.75]);
+});
+
+describe("choicesMessage", () => {
+  const items = [
+    { file: "n/a.wav", label: "A", group: "Narrator", chosen: false },
+    { file: "n/b.wav", label: "B", group: "Narrator", chosen: true },
+    { file: "c.wav", label: "C", group: null, chosen: true },
+  ];
+
+  test("names the chosen file of each group, and adds the note when there is one", () => {
+    expect(choicesMessage(items, "  ")).toBe("My choices:\n- Narrator: B (n/b.wav)\n- C (c.wav)");
+    expect(choicesMessage(items, " Faster, please. ")).toBe("My choices:\n- Narrator: B (n/b.wav)\n- C (c.wav)\n\nFaster, please.");
+  });
 });

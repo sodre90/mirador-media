@@ -635,13 +635,14 @@ audio.item-media {
   margin: 0;
   color: var(--mark);
 }
-main.items > .composer,
-main.items > .pick-hint {
+main.items > .composer {
   position: sticky;
   bottom: 0;
 }
-main.items > .pick-hint {
-  margin: 0;
-  padding: 8px 0;
-  background: var(--bg);
+.composer-row .also-send {
+  margin-left: auto;
+  font-weight: 600;
+}
+.composer-row .also-send + .primary {
+  margin-left: 0;
 }

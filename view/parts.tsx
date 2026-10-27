@@ -190,21 +190,43 @@ export function MarkList({ document, onSeek }: { document: MediaDocument; onSeek
   );
 }
 
-/** The note the user writes about what they marked, over what is marked and its sending, like a message to the agent; send says how it went. */
-export function Composer({ marked, send, question = "What's wrong here" }: { marked: ReactNode; send: (note: string) => Promise<string>; question?: string }) {
+/** Another way to send, beside Send, which needs no note and takes the one written, if any. */
+export interface AlsoSend {
+  label: string;
+  enabled: boolean;
+  send: (note: string) => Promise<string>;
+}
+
+/**
+ * The note the user writes about what they marked, over what is marked and its sending, like a message to the agent;
+ * send says how it went. Send needs a note, and something marked when `ready` says so.
+ */
+export function Composer({
+  marked,
+  send,
+  question = "What's wrong here",
+  ready = true,
+  alsoSend,
+}: {
+  marked: ReactNode;
+  send: (note: string) => Promise<string>;
+  question?: string;
+  ready?: boolean;
+  alsoSend?: AlsoSend;
+}) {
   const [note, setNote] = useState("");
   const [status, setStatus] = useState<{ sending: boolean; text: string } | null>(null);
-  const submit = async () => {
+  const submit = async (sending = send) => {
     setStatus({ sending: true, text: "Sending…" });
     try {
-      const sent = await send(note);
+      const sent = await sending(note);
       setNote("");
       setStatus({ sending: false, text: sent });
     } catch (error) {
       setStatus({ sending: false, text: (error as Error).message });
     }
   };
-  const canSend = note.trim() !== "" && !status?.sending;
+  const canSend = ready && note.trim() !== "" && !status?.sending;
   return (
     <div className="composer">
       <textarea
@@ -217,10 +239,16 @@ export function Composer({ marked, send, question = "What's wrong here" }: { mar
           if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
           event.preventDefault();
           if (canSend) void submit();
+          else if (!ready && alsoSend?.enabled && note.trim() !== "" && !status?.sending) void submit(alsoSend.send);
         }}
       />
       <div className="composer-row">
         <div className="marked">{marked}</div>
+        {alsoSend && (
+          <button type="button" className="also-send" disabled={!alsoSend.enabled || status?.sending} onClick={() => void submit(alsoSend.send)}>
+            {alsoSend.label}
+          </button>
+        )}
         <button type="button" className="primary" aria-label="Send to the agent" disabled={!canSend} onClick={() => void submit()}>
           Send ↵
         </button>

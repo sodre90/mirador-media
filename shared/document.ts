@@ -41,6 +41,8 @@ export interface Probe {
   duration: number;
   fps: number;
   audio: boolean;
+  /** When the file the view shows was last written, in milliseconds: the view loads it again when this changes. */
+  modifiedAt?: number;
 }
 
 /** A part of the source, in seconds. */
@@ -220,7 +222,9 @@ function checkedSource(value: unknown): Source | null {
   const { width, height, duration, fps, audio } = probe;
   check(isNumber(width) && isNumber(height) && width > 0 && height > 0, "source.probe needs a width and height above 0");
   check(isNonNegative(duration) && isNumber(fps) && (fps > 0 || isPhoto(value.file)) && typeof audio === "boolean", "source.probe needs a duration, an fps above 0 and whether it has sound");
-  return { file: value.file, probe: { width, height, duration, fps, audio } };
+  const { modifiedAt } = probe;
+  check(modifiedAt === undefined || isNonNegative(modifiedAt), "source.probe's modifiedAt needs to be a time in milliseconds");
+  return { file: value.file, probe: { width, height, duration, fps, audio, ...(modifiedAt !== undefined && { modifiedAt }) } };
 }
 
 function checkedMark(value: unknown, index: number): Mark {

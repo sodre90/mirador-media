@@ -98,7 +98,7 @@ describe("the probe task", () => {
     await testClip(folder, "clip.webm", 2);
     const document = applyOperation(newDocument(), { op: "source", file: "clip.webm" }).document;
     const { summary, document: read } = await runTask(probe, document, folder);
-    expect(read.source!.probe).toEqual({ width: 64, height: 48, duration: expect.closeTo(2, 1), fps: 10, audio: false });
+    expect(read.source!.probe).toEqual({ width: 64, height: 48, duration: expect.closeTo(2, 1), fps: 10, audio: false, modifiedAt: Math.round(statSync(join(folder, "clip.webm")).mtimeMs) });
     expect(summary).toMatch(/^clip\.webm is 64×48, 0:0[12]\.\d\d long\.$/);
   });
 
@@ -145,7 +145,7 @@ describe("a photo", () => {
     copyFileSync(PHONE_PHOTO, join(folder, "IMG_1.JPG"));
     const { summary, document } = await runTask(probe, applyOperation(newDocument(), { op: "source", file: "IMG_1.JPG" }).document, folder);
     expect(summary).toBe("IMG_1.JPG is 25×33.");
-    expect(document.source!.probe).toEqual({ width: 25, height: 33, duration: 0, fps: 0, audio: false });
+    expect(document.source!.probe).toEqual({ width: 25, height: 33, duration: 0, fps: 0, audio: false, modifiedAt: expect.any(Number) });
   });
 
   test("renders its exposure, its crop to the pixel and its turn into the same format, turned upright as browsers show it", async () => {

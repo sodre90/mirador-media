@@ -1,4 +1,4 @@
-import { existsSync, renameSync, rmSync } from "node:fs";
+import { existsSync, renameSync, rmSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { AppTask, AppTaskContext } from "../mirador/api.ts";
 import { isHeif, isPhoto, renderedName, type MediaDocument } from "../shared/document.ts";
@@ -22,13 +22,13 @@ async function probed(context: AppTaskContext<MediaDocument>) {
   const { name, path } = await sourceFile(context);
   context.progress(null, `reading ${name}`);
   const [args, readFrom] = isPhoto(name) ? [PHOTO_PROBE_ARGUMENTS, photoProbeFrom] : [PROBE_ARGUMENTS, probeFrom];
-  const read = readFrom(await runProgram(binaries.ffprobe, [...args, path], context.signal));
+  const read = { ...readFrom(await runProgram(binaries.ffprobe, [...args, path], context.signal)), modifiedAt: Math.round(statSync(path).mtimeMs) };
   await context.apply({ op: "probed", probe: read });
   return read;
 }
 
 export const probe: AppTask<MediaDocument> = {
-  title: "Read the size, and a video's length and frame rate",
+  title: "Read the size, and a video's length and frame rate; again after the file is written, and the view loads it anew",
   async run(context) {
     const { width, height, duration } = await probed(context);
     const file = context.document.source!.file;

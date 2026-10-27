@@ -52,7 +52,7 @@ export function VideoEditor({ state }: { state: AppDocumentState<MediaDocument> 
 
   const probe = document.source?.probe ?? null;
   const fps = probe?.fps ?? DEFAULT_FPS;
-  const sourceUrl = useMediaUrl(document.source?.file ?? null, null);
+  const sourceUrl = useMediaUrl(document.source?.file ?? null, probe?.modifiedAt);
   const renderedUrl = useMediaUrl(mode === "rendered" ? (document.rendered?.file ?? null) : null, document.rendered?.at);
   const shown = mode === "rendered" ? renderedUrl : sourceUrl;
   const previewing = mode === "preview";

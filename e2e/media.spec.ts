@@ -429,6 +429,21 @@ test("app_open on the video itself starts its document beside it, which shows th
   expect(await mirador.callCanvasTool(host, conversation, "app_open", { app: "media", file: "notes.txt" })).toContain("notes.txt isn't a video or photo");
 });
 
+test("a video written again, as by a new render of it, plays anew in the view once the agent reads it again", async ({ page }) => {
+  const conversation = await startWithTheAgent(page);
+  const shortClip = (seconds: number) => execFileSync(ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", `testsrc2=s=160x120:r=10:d=${seconds}`, join(host.projectDir, "take.webm")]);
+  shortClip(2);
+  await mirador.callCanvasTool(host, conversation, "app_open", { app: "media", file: "take.webm" });
+  await expect(view(page).locator(".facts")).toHaveText("160×120 · 10 fps · 0:02.00");
+  const playedLength = () => view(page).locator("video").first().evaluate((video: HTMLVideoElement) => Math.round(video.duration));
+  await expect.poll(playedLength).toBe(2);
+
+  shortClip(3);
+  expect(await mirador.callCanvasTool(host, conversation, "app_run", { task: "probe" })).toBe("take.webm is 160×120, 0:03.00 long.");
+  await expect(view(page).locator(".facts")).toHaveText("160×120 · 10 fps · 0:03.00");
+  await expect.poll(playedLength).toBe(3);
+});
+
 /** A second of a tone, as a take of a voice would be. */
 const testTone = (path: string, frequency: number) => execFileSync(ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", `sine=f=${frequency}:d=1`, path]);
 

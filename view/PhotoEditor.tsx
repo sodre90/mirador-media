@@ -14,7 +14,7 @@ export function PhotoEditor({ state }: { state: AppDocumentState<MediaDocument> 
   const [mode, setMode] = useState<Mode>("preview");
   const [box, setBox] = useState<Box | null>(null);
   const probe = document.source?.probe ?? null;
-  const sourceUrl = useMediaUrl(document.source && shownFile(document.source), null);
+  const sourceUrl = useMediaUrl(document.source && shownFile(document.source), probe?.modifiedAt);
   const renderedUrl = useMediaUrl(mode === "rendered" ? (document.rendered?.file ?? null) : null, document.rendered?.at);
   const shown = mode === "rendered" ? renderedUrl : sourceUrl;
   const previewing = mode === "preview";

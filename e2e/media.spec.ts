@@ -267,6 +267,21 @@ test("mark 0:39 with a box and send 'too dark here'; the agent trims, cuts, slow
     expect(new Set(between(samples, 40.2, 41.8).map(({ filter }) => filter))).toEqual(new Set(["brightness(4)"]));
   });
 
+  await test.step("a seek after the play shows its frame where the browser decodes it, without playing again", async () => {
+    const video = view(page).locator("video");
+    await video.evaluate((element: HTMLVideoElement) => {
+      const counted = window as unknown as { playsSinceSeek: number };
+      counted.playsSinceSeek = 0;
+      element.addEventListener("play", () => (counted.playsSinceSeek += 1));
+    });
+    const track = (await view(page).getByRole("slider", { name: "Time" }).boundingBox())!;
+    await page.mouse.click(track.x + track.width * (31 / 45), track.y + track.height / 2);
+    await expect(view(page).getByLabel("Current time")).toHaveText(/^0:3[01]\.\d\d \/ 0:45\.00$/);
+    await page.waitForTimeout(600);
+    expect(await video.evaluate(() => (window as unknown as { playsSinceSeek: number }).playsSinceSeek)).toBe(0);
+    await expect(view(page).getByRole("button", { name: "Play" })).toBeVisible();
+  });
+
   await test.step("the agent crops, turns and straightens the frame, and the user draws a box on the frame as the pane shows it", async () => {
     expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "crop", x: 80, y: 60, width: 160, height: 120 } })).toBe("Cropped to x 80, y 60, 160×120 px.");
     expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "turn", degrees: 90 } })).toBe("Turned 90° clockwise.");

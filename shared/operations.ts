@@ -1,4 +1,4 @@
-import { checkedDocument, fileName, hasEdits, isListable, isPhoto, MAX_STRAIGHTEN, NO_EDITS, SETTING_NAMES, SETTINGS, type Box, type Edits, type Item, type MediaDocument, type Probe, type Ranged, type SettingName } from "./document.ts";
+import { checkedDocument, fileName, groupChosenTwice, hasEdits, isListable, isPhoto, MAX_STRAIGHTEN, NO_EDITS, SETTING_NAMES, SETTINGS, type Box, type Edits, type Item, type MediaDocument, type Probe, type Ranged, type SettingName } from "./document.ts";
 import { overlaps, painted, withoutSpan, withSpan } from "./spans.ts";
 import { keptParts } from "./timeline.ts";
 import { formatTime, SETTING_FORMATS } from "./time.ts";
@@ -6,7 +6,9 @@ import { formatTime, SETTING_FORMATS } from "./time.ts";
 export type Operation =
   | { op: "source"; file: string }
   /** Files for the user to play and choose from, in place of a source; the label is the file's name unless given. */
-  | { op: "items"; items: { file: string; label?: string; group?: string | null }[] }
+  | { op: "items"; items: { file: string; label?: string; group?: string | null; chosen?: boolean }[] }
+  /** Chooses a listed file in its group, in place of the one chosen there before; chosen: false takes the choice back. */
+  | { op: "choose"; file: string; chosen?: boolean }
   | { op: "trim"; start: number; end: number }
   | { op: "untrim" }
   | { op: "cut"; start: number; end: number }
@@ -179,8 +181,31 @@ function listedItems(value: unknown): Item[] {
     if (!isListable(item.file)) refuse(`${item.file} isn't a sound, video or photo the user can play or see here: list .wav, .mp3, .m4a, .ogg, .flac, .mp4, .webm, .mov, .jpg, .png or .webp files.`);
     if (item.label !== undefined && typeof item.label !== "string") refuse(`items[${index}]: a label is words.`);
     if (item.group !== undefined && item.group !== null && typeof item.group !== "string") refuse(`items[${index}]: a group is a name.`);
-    return { file: item.file, label: item.label?.trim() || fileName(item.file), group: item.group?.trim() || null };
+    if (item.chosen !== undefined && typeof item.chosen !== "boolean") refuse(`items[${index}]: chosen is true or false.`);
+    return { file: item.file, label: item.label?.trim() || fileName(item.file), group: item.group?.trim() || null, chosen: item.chosen ?? false };
   });
+}
+
+function listedOnce(items: Item[]) {
+  const twice = groupChosenTwice(items);
+  if (twice !== undefined) refuse(`Choose one file at most in ${twice === null ? "the files without a group" : twice}.`);
+  return items;
+}
+
+function itemOf(document: MediaDocument, file: unknown) {
+  const item = document.items.find((candidate) => candidate.file === file);
+  if (!item) refuse(document.items.length > 0 ? `${String(file)} isn't listed; choose one of the files app_state lists.` : 'There are no files to choose from; list them with { op: "items", items: [...] }.');
+  return item;
+}
+
+function choose(document: MediaDocument, operation: Record<string, unknown>): Applied {
+  const item = itemOf(document, operation.file);
+  const chosen = operation.chosen ?? true;
+  if (typeof chosen !== "boolean") refuse("chosen is true or false.");
+  if (item.chosen === chosen) refuse(chosen ? `${item.label} is chosen already.` : `${item.label} isn't chosen.`);
+  const items = document.items.map((candidate) => (candidate === item ? { ...item, chosen } : candidate.group === item.group && chosen ? { ...candidate, chosen: false } : candidate));
+  const group = item.group ? ` for ${item.group}` : "";
+  return changed(document, { items }, chosen ? `Chose ${item.label}${group}.` : `Took back the choice of ${item.label}${group}.`, ["items"]);
 }
 
 const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
@@ -217,10 +242,12 @@ export function applyOperation(document: MediaDocument, operation: unknown): App
       return changed(document, { source: { file, probe: null }, items: [], edits: NO_EDITS, marks: [], rendered: null }, `Opened ${file}${dropped}.`, ["source"]);
     }
     case "items": {
-      const items = listedItems(operation.items);
+      const items = listedOnce(listedItems(operation.items));
       const dropped = document.source ? `; ${document.source.file}, with its edits and marks, is put aside, and undo brings it back` : "";
       return changed(document, { source: null, items, edits: NO_EDITS, marks: [], rendered: null }, `Listed ${describeListing(items)} to choose from${dropped}.`, ["items"]);
     }
+    case "choose":
+      return choose(document, operation);
     case "trim": {
       sourceOf(document);
       const trim = spanIn(document, operation, "trim's");

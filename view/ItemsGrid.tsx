@@ -19,6 +19,23 @@ function Player({ item, onPlay }: { item: Item; onPlay: (event: SyntheticEvent<H
   return <video className="item-media" src={url.url} controls preload="metadata" playsInline onPlay={onPlay} />;
 }
 
+/** Chooses the file in its group, in place of the one chosen there, or takes the choice back. */
+function ChooseButton({ item }: { item: Item }) {
+  const where = item.group ? ` for ${item.group}` : "";
+  return (
+    <button
+      type="button"
+      className={item.chosen ? "choose on" : "choose"}
+      aria-pressed={item.chosen}
+      aria-label={`Choose ${item.label}${where}`}
+      title={item.chosen ? "Take the choice back" : `Choose it${where}`}
+      onClick={() => window.mirador.apply({ op: "choose", file: item.file, chosen: !item.chosen })}
+    >
+      {item.chosen ? "✓ Chosen" : "Choose"}
+    </button>
+  );
+}
+
 /** The files the agent listed, in their groups, each played in place; the one picked, or played last, is what the note is about. */
 export function ItemsGrid({ items }: { items: Item[] }) {
   const [picked, setPicked] = useState<Item | null>(null);
@@ -35,11 +52,14 @@ export function ItemsGrid({ items }: { items: Item[] }) {
           {group && <h2>{group}</h2>}
           <ul className="item-grid">
             {grouped.map((item) => (
-              <li key={item.file} className={item === current ? "item picked" : "item"}>
-                <button type="button" className="pick" aria-pressed={item === current} title={item.file} onClick={() => setPicked(item)}>
-                  <strong>{item.label}</strong>
-                  {item.label !== fileName(item.file) && <span className="item-file">{item.file}</span>}
-                </button>
+              <li key={item.file} className={["item", item === current && "picked", item.chosen && "chosen"].filter(Boolean).join(" ")}>
+                <div className="item-head">
+                  <button type="button" className="pick" aria-pressed={item === current} title={item.file} onClick={() => setPicked(item)}>
+                    <strong>{item.label}</strong>
+                    {item.label !== fileName(item.file) && <span className="item-file">{item.file}</span>}
+                  </button>
+                  <ChooseButton item={item} />
+                </div>
                 <Player
                   item={item}
                   onPlay={(event) => {

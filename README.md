@@ -29,8 +29,8 @@ what's wrong instead of describing it in words, and the agent changes it.
   carried into the render.
 - **Files to choose from:** in place of one video, the agent can list sounds, videos or photos, such as takes of a voice
   (`{ op: "items", items: [{ file: "takes/a.wav", label: "Take 1", group: "Narrator" }] }`). They show as a grid of
-  cards in their groups, each playing in place, one at a time. Play or pick one and type a note, and the agent gets
-  "About Take 1 (takes/a.wav): …".
+  cards in their groups, each playing in place, one at a time. Choose one per group with its Choose button; the agent
+  sees the choices in the document. Play or pick one and type a note, and the agent gets "About Take 1 (takes/a.wav): …".
 
 The app's document is a `.media.json` file next to the video or photo. Ask the agent something like "open clip.mp4 in
 the media app". It calls `app_open` on `clip.mp4`, which starts `clip.media.json` beside it on that video, or opens it

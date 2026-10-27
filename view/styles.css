@@ -578,8 +578,26 @@ main.items section h2 {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent);
 }
+.item.chosen {
+  background: color-mix(in srgb, var(--speed) 12%, var(--panel));
+}
+.item-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.item .choose {
+  margin-left: auto;
+  flex: none;
+  white-space: nowrap;
+}
+.item .choose.on {
+  background: color-mix(in srgb, var(--speed) 30%, var(--raised));
+  font-weight: 600;
+}
 .item .pick {
   display: flex;
+  flex: 1;
   flex-direction: column;
   align-items: flex-start;
   gap: 1px;

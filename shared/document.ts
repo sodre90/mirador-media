@@ -22,6 +22,8 @@ export interface Item {
   file: string;
   label: string;
   group: string | null;
+  /** The user's choice in its group: one at most. */
+  chosen: boolean;
 }
 
 export interface Source {
@@ -235,7 +237,19 @@ function checkedItem(value: unknown, index: number): Item {
   check(isRecord(value) && typeof value.file === "string" && value.file !== "" && typeof value.label === "string", `${where} needs a file and a label`);
   const group = value.group ?? null;
   check(group === null || typeof group === "string", `${where}: a group is a name`);
-  return { file: value.file, label: value.label, group };
+  const chosen = value.chosen ?? false;
+  check(typeof chosen === "boolean", `${where}: chosen is true or false`);
+  return { file: value.file, label: value.label, group, chosen };
+}
+
+/** The group that has more than one file chosen, or undefined when each has one at most. */
+export const groupChosenTwice = (items: Item[]) => items.find((item, index) => item.chosen && items.findIndex((other) => other.chosen && other.group === item.group) !== index)?.group;
+
+function checkedItems(values: unknown[]) {
+  const items = values.map(checkedItem);
+  const twice = groupChosenTwice(items);
+  check(twice === undefined, `${twice === null ? "the files" : twice}: one file at most is chosen in a group`);
+  return items;
 }
 
 /** The document a file holds, or the reason it isn't one. */
@@ -254,7 +268,7 @@ export function checkedDocument(value: unknown): MediaDocument {
   return {
     version: 1,
     source,
-    items: items.map(checkedItem),
+    items: checkedItems(items),
     edits: checkedEdits(value.edits, "edits"),
     marks,
     nextMark: value.nextMark as number,

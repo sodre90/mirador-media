@@ -432,7 +432,7 @@ test("app_open on the video itself starts its document beside it, which shows th
 /** A second of a tone, as a take of a voice would be. */
 const testTone = (path: string, frequency: number) => execFileSync(ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", `sine=f=${frequency}:d=1`, path]);
 
-test("the agent lists takes and a clip to choose from; they play in place, one at a time, and the one picked is what the note to the agent is about", async ({ page }) => {
+test("the agent lists takes and a clip to choose from; they play in place, one at a time; one per group is chosen, and the one picked is what the note to the agent is about", async ({ page }) => {
   mkdirSync(join(host.projectDir, "takes"), { recursive: true });
   testTone(join(host.projectDir, "takes", "low.wav"), 220);
   testTone(join(host.projectDir, "takes", "high.mp3"), 880);
@@ -450,12 +450,23 @@ test("the agent lists takes and a clip to choose from; they play in place, one a
   await expect(view(page).getByText("Play or pick one to tell the agent about it.")).toBeVisible();
 
   await low.evaluate((audio: HTMLAudioElement) => audio.play());
-  await expect(view(page).getByRole("button", { name: "Low" })).toHaveAttribute("aria-pressed", "true");
+  await expect(view(page).locator(".pick", { hasText: "Low" })).toHaveAttribute("aria-pressed", "true");
   await high.evaluate((audio: HTMLAudioElement) => audio.play());
   await expect.poll(() => low.evaluate((audio: HTMLAudioElement) => audio.paused)).toBe(true);
-  await expect(view(page).getByRole("button", { name: "high.mp3" })).toHaveAttribute("aria-pressed", "true");
+  await expect(view(page).locator(".pick", { hasText: "high.mp3" })).toHaveAttribute("aria-pressed", "true");
 
-  await view(page).getByRole("button", { name: "Low" }).click();
+  await view(page).getByRole("button", { name: "Choose high.mp3 for Narrator" }).click();
+  await expect(view(page).getByRole("button", { name: "Choose high.mp3 for Narrator" })).toHaveText("✓ Chosen");
+  await view(page).getByRole("button", { name: "Choose Low for Narrator" }).click();
+  await expect(view(page).getByRole("button", { name: "Choose Low for Narrator" })).toHaveAttribute("aria-pressed", "true");
+  await expect(view(page).getByRole("button", { name: "Choose high.mp3 for Narrator" })).toHaveAttribute("aria-pressed", "false");
+  await view(page).getByRole("button", { name: "Choose Clip for Video" }).click();
+  await expect(view(page).locator(".item.chosen .pick strong")).toHaveText(["Low", "Clip"]);
+  const state = await mirador.callCanvasTool(host, conversation, "app_state", {});
+  expect(state).toContain("- Low (takes/low.wav) (chosen)\n- takes/high.mp3\n");
+  expect(state).toMatch(/\d+\. user: Chose Low for Narrator\./);
+
+  await view(page).locator(".pick", { hasText: "Low" }).click();
   await view(page).getByLabel("What about Low").fill("warmer than the others");
   await view(page).getByLabel("What about Low").press("Enter");
   await expect(view(page).locator(".composer [role=status]")).toHaveText("Sent to the agent, about Low.");

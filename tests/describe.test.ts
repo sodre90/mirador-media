@@ -10,17 +10,18 @@ const probe = { width: 1920, height: 1080, duration: 83.4, fps: 29.97, audio: tr
 describe("describeDocument", () => {
   test("lists files to choose from by group, says how the user's pick reaches the agent, and how to list them again or edit one", () => {
     const items = [
-      { file: "voices/01-am_fenrir.wav", label: "Fenrir", group: "Narrator" },
-      { file: "voices/02-af_heart.wav", label: "02-af_heart.wav", group: "Narrator" },
-      { file: "voices/21-bm_george.wav", label: "George", group: "Agent" },
+      { file: "voices/01-am_fenrir.wav", label: "Fenrir", group: "Narrator", chosen: false },
+      { file: "voices/02-af_heart.wav", label: "02-af_heart.wav", group: "Narrator", chosen: true },
+      { file: "voices/21-bm_george.wav", label: "George", group: "Agent", chosen: false },
     ];
     expect(describeDocument({ ...newDocument(), items })).toBe(
       [
-        'Files to choose from, which the user plays or looks at in a grid. When they pick one and write about it, you get "About <label> (<file>): <their words>".\nNarrator:\n- Fenrir (voices/01-am_fenrir.wav)\n- voices/02-af_heart.wav\nAgent:\n- George (voices/21-bm_george.wav)',
+        'Files to choose from, which the user plays or looks at in a grid, and chooses one per group. When they write about one, you get "About <label> (<file>): <their words>".\nNarrator:\n- Fenrir (voices/01-am_fenrir.wav)\n- voices/02-af_heart.wav (chosen)\nAgent:\n- George (voices/21-bm_george.wav)',
         ITEMS_OPERATIONS_HELP,
       ].join("\n\n"),
     );
     expect(ITEMS_OPERATIONS_HELP).toContain('{ op: "source", file: "clip.mp4" }');
+    expect(ITEMS_OPERATIONS_HELP).toContain('{ op: "choose", file: "takes/a.wav" }');
     expect(OPERATIONS_HELP).toContain('{ op: "items"');
   });
 

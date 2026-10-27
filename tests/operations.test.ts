@@ -41,9 +41,9 @@ describe("applyOperation", () => {
     const listed = applied(withVideo(), { op: "exposure", ev: 1 }, { op: "items", items: [{ file: "takes/a.wav", label: "Fenrir", group: "Narrator" }, { file: "takes/b.mp3", group: "Narrator" }, { file: "shot.png" }] });
     expect(listed.document).toMatchObject({ source: null, edits: NO_EDITS, marks: [] });
     expect(listed.document.items).toEqual([
-      { file: "takes/a.wav", label: "Fenrir", group: "Narrator" },
-      { file: "takes/b.mp3", label: "b.mp3", group: "Narrator" },
-      { file: "shot.png", label: "shot.png", group: null },
+      { file: "takes/a.wav", label: "Fenrir", group: "Narrator", chosen: false },
+      { file: "takes/b.mp3", label: "b.mp3", group: "Narrator", chosen: false },
+      { file: "shot.png", label: "shot.png", group: null, chosen: false },
     ]);
     expect(listed.summaries[1]).toBe("Listed 3 files in 2 groups to choose from; clip.mp4, with its edits and marks, is put aside, and undo brings it back.");
     const undone = applyOperation(listed.document, listed.inverses[0]).document;
@@ -52,6 +52,24 @@ describe("applyOperation", () => {
     expect(opened.document).toMatchObject({ source: { file: "takes/b.mp4" }, items: [] });
     expect(opened.summaries).toEqual(["Opened takes/b.mp4; the list of 3 files in 2 groups is put aside, and undo brings it back."]);
     expect(applyOperation(opened.document, opened.inverses[0]).document.items).toHaveLength(3);
+  });
+
+  test("chooses one file per group, in place of the one chosen there before, and takes a choice back", () => {
+    const listed = applied(newDocument(), {
+      op: "items",
+      items: [{ file: "n/a.wav", label: "A", group: "Narrator", chosen: true }, { file: "n/b.wav", label: "B", group: "Narrator" }, { file: "u/c.wav", label: "C", group: "User" }],
+    });
+    const chosen = (document: MediaDocument) => document.items.filter((item) => item.chosen).map(({ file }) => file);
+    expect(chosen(listed.document)).toEqual(["n/a.wav"]);
+    const choosing = applied(listed.document, { op: "choose", file: "n/b.wav" }, { op: "choose", file: "u/c.wav" }, { op: "choose", file: "u/c.wav", chosen: false });
+    expect(choosing.summaries).toEqual(["Chose B for Narrator.", "Chose C for User.", "Took back the choice of C for User."]);
+    expect(chosen(choosing.document)).toEqual(["n/b.wav"]);
+    expect(chosen(applyOperation(choosing.document, choosing.inverses.at(-1)).document)).toEqual(["n/a.wav"]);
+    expect(refusal(choosing.document, { op: "choose", file: "n/b.wav" })).toBe("B is chosen already.");
+    expect(refusal(choosing.document, { op: "choose", file: "x.wav" })).toBe("x.wav isn't listed; choose one of the files app_state lists.");
+    expect(refusal(withVideo(), { op: "choose", file: "x.wav" })).toStartWith("There are no files to choose from");
+    expect(refusal(newDocument(), { op: "items", items: [{ file: "a.wav", chosen: true }, { file: "b.wav", chosen: true }] })).toBe("Choose one file at most in the files without a group.");
+    expect(() => checkedDocument({ ...listed.document, items: listed.document.items.map((item) => ({ ...item, chosen: item.group === "Narrator" })) })).toThrow("Narrator: one file at most is chosen in a group");
   });
 
   test("refuses a list with nothing in it, or with a file the grid can't play or show", () => {
@@ -300,6 +318,6 @@ describe("opening on a video or photo", () => {
   test("reads a document from before items as one with none, and refuses one with both a source and items", () => {
     const { items, ...older } = withVideo();
     expect(checkedDocument(older).items).toEqual([]);
-    expect(() => checkedDocument({ ...withVideo(), items: [{ file: "a.wav", label: "a", group: null }] })).toThrow("a document has a source or items, not both");
+    expect(() => checkedDocument({ ...withVideo(), items: [{ file: "a.wav", label: "a", group: null, chosen: false }] })).toThrow("a document has a source or items, not both");
   });
 });

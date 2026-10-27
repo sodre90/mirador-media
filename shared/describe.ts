@@ -6,7 +6,7 @@ import { formatFps, formatTime, SETTING_FORMATS } from "./time.ts";
 
 const SOURCE_HELP = '- { op: "source", file: "clip.mp4" }: the video, or a .jpg, .png, .webp or .heic photo, relative to this file\'s folder';
 const ITEMS_HELP =
-  '- { op: "items", items: [{ file: "takes/a.wav", label?: "Take 1", group?: "Narrator" }] }: sounds, videos or photos for the user to play and choose from, in place of a video to edit';
+  '- { op: "items", items: [{ file: "takes/a.wav", label?: "Take 1", group?: "Narrator", chosen?: true }] }: sounds, videos or photos for the user to play and choose from, one per group, in place of a video to edit';
 const EXPOSURE_HELP = '- { op: "exposure", ev: 0.5 }: stops brighter, or darker below 0, from -3 to 3; 0 is as shot';
 const FRAME_HELP = [
   '- { op: "crop", x, y, width, height } keeps that part of the frame, in the source\'s pixels; { op: "uncrop" }',
@@ -42,7 +42,12 @@ export const PHOTO_OPERATIONS_HELP = [
 ].join("\n");
 
 /** Files to choose from have no edits: the agent lists them again, or opens one to edit. */
-export const ITEMS_OPERATIONS_HELP = ["Operations:", ITEMS_HELP.replace(": sounds,", ": lists again the sounds,"), SOURCE_HELP].join("\n");
+export const ITEMS_OPERATIONS_HELP = [
+  "Operations:",
+  '- { op: "choose", file: "takes/a.wav" } chooses that file in its group, in place of the one chosen there before; chosen: false takes the choice back',
+  ITEMS_HELP.replace(": sounds,", ": lists again the sounds,"),
+  SOURCE_HELP,
+].join("\n");
 
 export function describeEdits(edits: Edits) {
   if (!hasEdits(edits)) return "none";
@@ -123,7 +128,7 @@ function describeRendered(document: MediaDocument) {
   return `Rendered: ${rendered.file}, ${current}.`;
 }
 
-const describeItem = ({ file, label }: Item) => `- ${label === fileName(file) ? file : `${label} (${file})`}`;
+const describeItem = ({ file, label, chosen }: Item) => `- ${label === fileName(file) ? file : `${label} (${file})`}${chosen ? " (chosen)" : ""}`;
 
 /** The files in their groups, in the order the user sees them: a group's files together, where its first one is. */
 export function groupedItems(items: Item[]) {
@@ -136,7 +141,7 @@ function describeItems(items: Item[]) {
     .map(({ group, items }) => [group && `${group}:`, ...items.map(describeItem)].filter(Boolean).join("\n"))
     .join("\n");
   return [
-    `Files to choose from, which the user plays or looks at in a grid. When they pick one and write about it, you get "About <label> (<file>): <their words>".\n${listing}`,
+    `Files to choose from, which the user plays or looks at in a grid, and chooses one per group. When they write about one, you get "About <label> (<file>): <their words>".\n${listing}`,
     ITEMS_OPERATIONS_HELP,
   ].join("\n\n");
 }

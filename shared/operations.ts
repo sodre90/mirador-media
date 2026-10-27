@@ -1,10 +1,12 @@
-import { checkedDocument, hasEdits, isPhoto, MAX_STRAIGHTEN, NO_EDITS, SETTING_NAMES, SETTINGS, type Box, type Edits, type MediaDocument, type Probe, type Ranged, type SettingName } from "./document.ts";
+import { checkedDocument, fileName, hasEdits, isListable, isPhoto, MAX_STRAIGHTEN, NO_EDITS, SETTING_NAMES, SETTINGS, type Box, type Edits, type Item, type MediaDocument, type Probe, type Ranged, type SettingName } from "./document.ts";
 import { overlaps, painted, withoutSpan, withSpan } from "./spans.ts";
 import { keptParts } from "./timeline.ts";
 import { formatTime, SETTING_FORMATS } from "./time.ts";
 
 export type Operation =
   | { op: "source"; file: string }
+  /** Files for the user to play and choose from, in place of a source; the label is the file's name unless given. */
+  | { op: "items"; items: { file: string; label?: string; group?: string | null }[] }
   | { op: "trim"; start: number; end: number }
   | { op: "untrim" }
   | { op: "cut"; start: number; end: number }
@@ -31,9 +33,9 @@ export type Operation =
   /** Puts fields back as they were: the inverse of every other operation. */
   | { op: "restore"; fields: Partial<Restorable> };
 
-type Restorable = Pick<MediaDocument, "source" | "edits" | "marks" | "nextMark" | "rendered">;
+type Restorable = Pick<MediaDocument, "source" | "items" | "edits" | "marks" | "nextMark" | "rendered">;
 
-const RESTORABLE: (keyof Restorable)[] = ["source", "edits", "marks", "nextMark", "rendered"];
+const RESTORABLE: (keyof Restorable)[] = ["source", "items", "edits", "marks", "nextMark", "rendered"];
 
 export interface Applied {
   document: MediaDocument;
@@ -167,6 +169,27 @@ function markOf(document: MediaDocument, id: unknown) {
   return mark;
 }
 
+function listedItems(value: unknown): Item[] {
+  if (!Array.isArray(value) || value.length === 0) refuse('items needs the files to choose from, e.g. [{ file: "takes/a.wav", label: "Take 1", group: "Narrator" }].');
+  const files = value.map((item) => (isRecord(item) ? item.file : undefined));
+  const twice = files.find((file, index) => typeof file === "string" && files.indexOf(file) !== index);
+  if (twice !== undefined) refuse(`${twice} is listed twice; list each file once.`);
+  return value.map((item, index) => {
+    if (!isRecord(item) || typeof item.file !== "string" || item.file.trim() === "") refuse(`items[${index}] needs its file, relative to this file's folder.`);
+    if (!isListable(item.file)) refuse(`${item.file} isn't a sound, video or photo the user can play or see here: list .wav, .mp3, .m4a, .ogg, .flac, .mp4, .webm, .mov, .jpg, .png or .webp files.`);
+    if (item.label !== undefined && typeof item.label !== "string") refuse(`items[${index}]: a label is words.`);
+    if (item.group !== undefined && item.group !== null && typeof item.group !== "string") refuse(`items[${index}]: a group is a name.`);
+    return { file: item.file, label: item.label?.trim() || fileName(item.file), group: item.group?.trim() || null };
+  });
+}
+
+const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+
+function describeListing(items: Item[]) {
+  const groups = new Set(items.map(({ group }) => group)).size;
+  return `${plural(items.length, "file")}${groups > 1 ? ` in ${groups} groups` : ""}`;
+}
+
 export const describeBox = ({ x, y, width, height }: Box) => `x ${x}, y ${y}, ${width}×${height} px`;
 
 export const describeWhen = ({ at, end }: { at: number; end: number | null }) => (end === null ? `at ${formatTime(at)}` : `from ${formatTime(at)} to ${formatTime(end)}`);
@@ -185,8 +208,18 @@ export function applyOperation(document: MediaDocument, operation: unknown): App
       const { file } = operation;
       if (typeof file !== "string" || file.trim() === "") refuse("source needs the video's or photo's file, relative to this file's folder.");
       if (document.source?.file === file) refuse(`${file} is the video already.`);
-      const dropped = document.marks.length > 0 || hasEdits(document.edits) ? `; the edits and marks of ${document.source?.file} are put aside, and undo brings them back` : "";
-      return changed(document, { source: { file, probe: null }, edits: NO_EDITS, marks: [], rendered: null }, `Opened ${file}${dropped}.`, ["source"]);
+      const dropped =
+        document.items.length > 0
+          ? `; the list of ${describeListing(document.items)} is put aside, and undo brings it back`
+          : document.marks.length > 0 || hasEdits(document.edits)
+            ? `; the edits and marks of ${document.source?.file} are put aside, and undo brings them back`
+            : "";
+      return changed(document, { source: { file, probe: null }, items: [], edits: NO_EDITS, marks: [], rendered: null }, `Opened ${file}${dropped}.`, ["source"]);
+    }
+    case "items": {
+      const items = listedItems(operation.items);
+      const dropped = document.source ? `; ${document.source.file}, with its edits and marks, is put aside, and undo brings it back` : "";
+      return changed(document, { source: null, items, edits: NO_EDITS, marks: [], rendered: null }, `Listed ${describeListing(items)} to choose from${dropped}.`, ["items"]);
     }
     case "trim": {
       sourceOf(document);

@@ -1,10 +1,12 @@
-import { changesSetting, hasEdits, isPhoto, renderedName, sameEdits, SETTING_NAMES, SETTINGS, type Edits, type MediaDocument, type Mark, type SettingName } from "./document.ts";
+import { changesSetting, fileName, hasEdits, isPhoto, renderedName, sameEdits, SETTING_NAMES, SETTINGS, type Edits, type Item, type MediaDocument, type Mark, type SettingName } from "./document.ts";
 import { framed } from "./geometry.ts";
 import { describeBox, describeSpan, describeStraighten, describeTurn, describeWhen, settingOperation } from "./operations.ts";
 import { keptParts, keptPieces, resultLength } from "./timeline.ts";
 import { formatFps, formatTime, SETTING_FORMATS } from "./time.ts";
 
 const SOURCE_HELP = '- { op: "source", file: "clip.mp4" }: the video, or a .jpg, .png, .webp or .heic photo, relative to this file\'s folder';
+const ITEMS_HELP =
+  '- { op: "items", items: [{ file: "takes/a.wav", label?: "Take 1", group?: "Narrator" }] }: sounds, videos or photos for the user to play and choose from, in place of a video to edit';
 const EXPOSURE_HELP = '- { op: "exposure", ev: 0.5 }: stops brighter, or darker below 0, from -3 to 3; 0 is as shot';
 const FRAME_HELP = [
   '- { op: "crop", x, y, width, height } keeps that part of the frame, in the source\'s pixels; { op: "uncrop" }',
@@ -16,6 +18,7 @@ const MARK_DONE_HELP = '- { op: "mark-done", mark: "m1" } once you dealt with a 
 export const OPERATIONS_HELP = [
   "Operations (times in seconds into the source, boxes in the source's pixels):",
   SOURCE_HELP,
+  ITEMS_HELP,
   '- { op: "trim", start: 5, end: 44 } keeps that part; { op: "untrim" } keeps all of it',
   '- { op: "cut", start: 12, end: 15 } takes that part out; { op: "uncut", start: 12, end: 15 } puts it back',
   EXPOSURE_HELP,
@@ -31,11 +34,15 @@ export const OPERATIONS_HELP = [
 export const PHOTO_OPERATIONS_HELP = [
   "Operations (boxes in the photo's pixels, as it is shown upright):",
   SOURCE_HELP,
+  ITEMS_HELP,
   EXPOSURE_HELP,
   ...FRAME_HELP,
   MARK_DONE_HELP,
   '- { op: "mark", box?: { x, y, width, height }, note: "…" }, { op: "remove-mark", mark: "m1" }',
 ].join("\n");
+
+/** Files to choose from have no edits: the agent lists them again, or opens one to edit. */
+export const ITEMS_OPERATIONS_HELP = ["Operations:", ITEMS_HELP.replace(": sounds,", ": lists again the sounds,"), SOURCE_HELP].join("\n");
 
 export function describeEdits(edits: Edits) {
   if (!hasEdits(edits)) return "none";
@@ -85,7 +92,9 @@ function describeMark(mark: Mark, photo: boolean) {
 
 function describeSource(document: MediaDocument) {
   const { source } = document;
-  if (!source) return 'No video or photo yet. Name the one to edit, next to this file, with { op: "source", file: "clip.mp4" }, or app_open the video itself; a photo is a .jpg, .png, .webp or .heic.';
+  if (!source) {
+    return 'No video or photo yet. Name the one to edit, next to this file, with { op: "source", file: "clip.mp4" }, or app_open the video itself; a photo is a .jpg, .png, .webp or .heic. Or list files for the user to play and choose from, such as takes of a sound, with { op: "items", items: [...] }.';
+  }
   if (isPhoto(source.file)) return source.probe ? `Photo: ${source.file}, ${source.probe.width}×${source.probe.height}.` : `Photo: ${source.file}, not read yet; app_run probe reads its size.`;
   if (!source.probe) return `Video: ${source.file}, not read yet; app_run probe reads its size, length and frame rate.`;
   const { width, height, fps, duration, audio } = source.probe;
@@ -114,8 +123,27 @@ function describeRendered(document: MediaDocument) {
   return `Rendered: ${rendered.file}, ${current}.`;
 }
 
+const describeItem = ({ file, label }: Item) => `- ${label === fileName(file) ? file : `${label} (${file})`}`;
+
+/** The files in their groups, in the order the user sees them: a group's files together, where its first one is. */
+export function groupedItems(items: Item[]) {
+  const groups = [...new Set(items.map(({ group }) => group))];
+  return groups.map((group) => ({ group, items: items.filter((item) => item.group === group) }));
+}
+
+function describeItems(items: Item[]) {
+  const listing = groupedItems(items)
+    .map(({ group, items }) => [group && `${group}:`, ...items.map(describeItem)].filter(Boolean).join("\n"))
+    .join("\n");
+  return [
+    `Files to choose from, which the user plays or looks at in a grid. When they pick one and write about it, you get "About <label> (<file>): <their words>".\n${listing}`,
+    ITEMS_OPERATIONS_HELP,
+  ].join("\n\n");
+}
+
 /** The document for the agent: the video or photo, the edits the user previews, the marks open first, and how to change them. */
 export function describeDocument(document: MediaDocument) {
+  if (document.items.length > 0) return describeItems(document.items);
   const marks = [...document.marks].sort((a, b) => Number(a.done) - Number(b.done) || a.at - b.at);
   const target = document.source ? renderedName(document.source.file) : "the edited file";
   const photo = document.source !== null && isPhoto(document.source.file);

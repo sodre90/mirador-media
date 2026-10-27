@@ -37,6 +37,32 @@ describe("applyOperation", () => {
     expect(refusal(withVideo(), { op: "source", file: "clip.mp4" })).toBe("clip.mp4 is the video already.");
   });
 
+  test("lists files to choose from in place of a video, labelled by their name unless given one, and a source puts the list aside", () => {
+    const listed = applied(withVideo(), { op: "exposure", ev: 1 }, { op: "items", items: [{ file: "takes/a.wav", label: "Fenrir", group: "Narrator" }, { file: "takes/b.mp3", group: "Narrator" }, { file: "shot.png" }] });
+    expect(listed.document).toMatchObject({ source: null, edits: NO_EDITS, marks: [] });
+    expect(listed.document.items).toEqual([
+      { file: "takes/a.wav", label: "Fenrir", group: "Narrator" },
+      { file: "takes/b.mp3", label: "b.mp3", group: "Narrator" },
+      { file: "shot.png", label: "shot.png", group: null },
+    ]);
+    expect(listed.summaries[1]).toBe("Listed 3 files in 2 groups to choose from; clip.mp4, with its edits and marks, is put aside, and undo brings it back.");
+    const undone = applyOperation(listed.document, listed.inverses[0]).document;
+    expect(undone).toMatchObject({ source: { file: "clip.mp4" }, items: [], edits: { exposure: { clip: 1 } } });
+    const opened = applied(listed.document, { op: "source", file: "takes/b.mp4" });
+    expect(opened.document).toMatchObject({ source: { file: "takes/b.mp4" }, items: [] });
+    expect(opened.summaries).toEqual(["Opened takes/b.mp4; the list of 3 files in 2 groups is put aside, and undo brings it back."]);
+    expect(applyOperation(opened.document, opened.inverses[0]).document.items).toHaveLength(3);
+  });
+
+  test("refuses a list with nothing in it, or with a file the grid can't play or show", () => {
+    expect(refusal(newDocument(), { op: "items", items: [] })).toStartWith("items needs the files to choose from");
+    expect(refusal(newDocument(), { op: "items", items: [{ label: "no file" }] })).toBe("items[0] needs its file, relative to this file's folder.");
+    expect(refusal(newDocument(), { op: "items", items: [{ file: "notes.txt" }] })).toStartWith("notes.txt isn't a sound, video or photo the user can play or see here");
+    expect(refusal(newDocument(), { op: "items", items: [{ file: "IMG_1.HEIC" }] })).toStartWith("IMG_1.HEIC isn't a sound, video or photo");
+    expect(refusal(newDocument(), { op: "items", items: [{ file: "a.wav", group: 3 }] })).toBe("items[0]: a group is a name.");
+    expect(refusal(newDocument(), { op: "items", items: [{ file: "a.wav", group: "One" }, { file: "a.wav", group: "Two" }] })).toBe("a.wav is listed twice; list each file once.");
+  });
+
   test("trims to a part of the video, within its length, and takes the trim off", () => {
     const { document, summaries } = applied(withVideo(), { op: "trim", start: 5, end: 44 });
     expect(document.edits.trim).toEqual({ start: 5, end: 44 });
@@ -193,7 +219,7 @@ describe("applyOperation", () => {
 
   test("refuses an operation it doesn't know, and a restore of a field it doesn't keep", () => {
     expect(refusal(withVideo(), { op: "blur" })).toBe("There is no operation blur; app_state lists them.");
-    expect(refusal(withVideo(), { op: "restore", fields: { version: 2 } })).toBe("restore puts back source, edits, marks, nextMark, rendered.");
+    expect(refusal(withVideo(), { op: "restore", fields: { version: 2 } })).toBe("restore puts back source, items, edits, marks, nextMark, rendered.");
     expect(refusal(withVideo(), "trim")).toContain("An operation is an object with op");
   });
 });
@@ -269,5 +295,11 @@ describe("opening on a video or photo", () => {
     expect(newDocument("clip.mp4").source).toEqual({ file: "clip.mp4", probe: null });
     expect(checkedDocument(newDocument("clip.mp4"))).toEqual(newDocument("clip.mp4"));
     expect(newDocument().source).toBeNull();
+  });
+
+  test("reads a document from before items as one with none, and refuses one with both a source and items", () => {
+    const { items, ...older } = withVideo();
+    expect(checkedDocument(older).items).toEqual([]);
+    expect(() => checkedDocument({ ...withVideo(), items: [{ file: "a.wav", label: "a", group: null }] })).toThrow("a document has a source or items, not both");
   });
 });

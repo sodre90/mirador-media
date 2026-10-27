@@ -1,15 +1,27 @@
 import type { Turn } from "./geometry.ts";
 
-/** A video and what the user and the agent do with it: the source file stays as it was, the edits are a list kept here. */
+/**
+ * A video and what the user and the agent do with it: the source file stays as it was, the edits are a list kept here.
+ * Or, in place of a source, files the agent lists for the user to play and choose from.
+ */
 export interface MediaDocument {
   version: 1;
   /** Null until the agent names the video next to this file. */
   source: Source | null;
+  items: Item[];
   edits: Edits;
   marks: Mark[];
   /** The number the next mark gets, so a removed mark's id is never reused. */
   nextMark: number;
   rendered: Rendered | null;
+}
+
+/** A file to choose from, shown in its group. */
+export interface Item {
+  /** Relative to the document's folder. */
+  file: string;
+  label: string;
+  group: string | null;
 }
 
 export interface Source {
@@ -108,7 +120,7 @@ const asShot = (name: SettingName): Setting => ({ clip: SETTINGS[name].asShot, r
 export const NO_EDITS: Edits = { trim: null, cuts: [], exposure: asShot("exposure"), speed: asShot("speed"), volume: asShot("volume"), crop: null, turn: 0, straighten: 0 };
 
 /** A new document, on the video or photo app_open was given for it when there is one. */
-export const newDocument = (sourceFile?: string): MediaDocument => ({ version: 1, source: sourceFile ? { file: sourceFile, probe: null } : null, edits: NO_EDITS, marks: [], nextMark: 1, rendered: null });
+export const newDocument = (sourceFile?: string): MediaDocument => ({ version: 1, source: sourceFile ? { file: sourceFile, probe: null } : null, items: [], edits: NO_EDITS, marks: [], nextMark: 1, rendered: null });
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const isNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
@@ -174,6 +186,13 @@ export const isPhoto = (file: string) => /\.(jpe?g|png|webp)$/i.test(file) || is
 
 const isVideo = (file: string) => /\.(mp4|m4v|mov|webm|mkv|avi)$/i.test(file);
 
+export const fileName = (file: string) => file.split("/").at(-1)!;
+
+export const isAudio = (file: string) => /\.(wav|mp3|m4a|aac|ogg|opus|flac)$/i.test(file);
+
+/** What the grid plays or shows in place: no browser shows HEIC, which only the editor turns upright. */
+export const isListable = (file: string) => isAudio(file) || isVideo(file) || (isPhoto(file) && !isHeif(file));
+
 /**
  * The document for a video or photo app_open is given: clip.mp4 has clip.media.json beside it; null for a document
  * itself. A video and a photo of the same name share one, whose source says which it edits.
@@ -211,6 +230,14 @@ function checkedMark(value: unknown, index: number): Mark {
   return { id: value.id, at: value.at, end, box: checkedBox(value.box ?? null, where), note: value.note, done: value.done };
 }
 
+function checkedItem(value: unknown, index: number): Item {
+  const where = `items[${index}]`;
+  check(isRecord(value) && typeof value.file === "string" && value.file !== "" && typeof value.label === "string", `${where} needs a file and a label`);
+  const group = value.group ?? null;
+  check(group === null || typeof group === "string", `${where}: a group is a name`);
+  return { file: value.file, label: value.label, group };
+}
+
 /** The document a file holds, or the reason it isn't one. */
 export function checkedDocument(value: unknown): MediaDocument {
   check(isRecord(value) && value.version === 1, "not a media document: it needs version 1");
@@ -218,11 +245,16 @@ export function checkedDocument(value: unknown): MediaDocument {
   check(Number.isInteger(value.nextMark) && (value.nextMark as number) >= 1, "nextMark must be a whole number from 1");
   const marks = value.marks.map(checkedMark);
   check(new Set(marks.map(({ id }) => id)).size === marks.length, "two marks have the same id");
+  const items = value.items ?? [];
+  check(Array.isArray(items), "items must be a list");
+  const source = checkedSource(value.source ?? null);
+  check(source === null || items.length === 0, "a document has a source or items, not both");
   const rendered = value.rendered ?? null;
   check(rendered === null || (isRecord(rendered) && typeof rendered.file === "string" && isNumber(rendered.at)), "rendered needs the file and when it was rendered");
   return {
     version: 1,
-    source: checkedSource(value.source ?? null),
+    source,
+    items: items.map(checkedItem),
     edits: checkedEdits(value.edits, "edits"),
     marks,
     nextMark: value.nextMark as number,

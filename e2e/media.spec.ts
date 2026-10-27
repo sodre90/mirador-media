@@ -429,6 +429,39 @@ test("app_open on the video itself starts its document beside it, which shows th
   expect(await mirador.callCanvasTool(host, conversation, "app_open", { app: "media", file: "notes.txt" })).toContain("notes.txt isn't a video or photo");
 });
 
+/** A second of a tone, as a take of a voice would be. */
+const testTone = (path: string, frequency: number) => execFileSync(ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", `sine=f=${frequency}:d=1`, path]);
+
+test("the agent lists takes and a clip to choose from; they play in place, one at a time, and the one picked is what the note to the agent is about", async ({ page }) => {
+  mkdirSync(join(host.projectDir, "takes"), { recursive: true });
+  testTone(join(host.projectDir, "takes", "low.wav"), 220);
+  testTone(join(host.projectDir, "takes", "high.mp3"), 880);
+  const conversation = await startWithTheAgent(page);
+  expect(await mirador.callCanvasTool(host, conversation, "app_open", { app: "media", file: "takes.media.json" })).toContain("Or list files for the user to play and choose from");
+  const items = [{ file: "takes/low.wav", label: "Low", group: "Narrator" }, { file: "takes/high.mp3", group: "Narrator" }, { file: "clip.webm", label: "Clip", group: "Video" }];
+  expect(await mirador.callCanvasTool(host, conversation, "apply", { op: { op: "items", items } })).toBe("Listed 3 files in 2 groups to choose from.");
+  expect(await mirador.callCanvasTool(host, conversation, "app_state", {})).toContain("Narrator:\n- Low (takes/low.wav)\n- takes/high.mp3\nVideo:\n- Clip (clip.webm)");
+
+  await expect(view(page).getByRole("heading")).toHaveText(["Narrator", "Video"]);
+  await expect(view(page).locator(".item .pick strong")).toHaveText(["Low", "high.mp3", "Clip"]);
+  const [low, high] = [view(page).locator("audio").nth(0), view(page).locator("audio").nth(1)];
+  await expect.poll(() => low.evaluate((audio: HTMLAudioElement) => Math.round(audio.duration))).toBe(1);
+  await expect.poll(() => view(page).locator("video").evaluate((video: HTMLVideoElement) => Math.round(video.duration))).toBe(45);
+  await expect(view(page).getByText("Play or pick one to tell the agent about it.")).toBeVisible();
+
+  await low.evaluate((audio: HTMLAudioElement) => audio.play());
+  await expect(view(page).getByRole("button", { name: "Low" })).toHaveAttribute("aria-pressed", "true");
+  await high.evaluate((audio: HTMLAudioElement) => audio.play());
+  await expect.poll(() => low.evaluate((audio: HTMLAudioElement) => audio.paused)).toBe(true);
+  await expect(view(page).getByRole("button", { name: "high.mp3" })).toHaveAttribute("aria-pressed", "true");
+
+  await view(page).getByRole("button", { name: "Low" }).click();
+  await view(page).getByLabel("What about Low").fill("warmer than the others");
+  await view(page).getByLabel("What about Low").press("Enter");
+  await expect(view(page).locator(".composer [role=status]")).toHaveText("Sent to the agent, about Low.");
+  await expect.poll(prompts).toContain("About Low (takes/low.wav): warmer than the others");
+});
+
 test.describe("on a touchscreen, as on the phone", () => {
   test.use({ hasTouch: true });
 

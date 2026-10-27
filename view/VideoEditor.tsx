@@ -151,7 +151,7 @@ export function VideoEditor({ state }: { state: AppDocumentState<MediaDocument> 
     await window.mirador.prompt(markMessage(document.source.file, probe, mark, { exposure: looks.exposure, frame: previewing ? edits : NO_EDITS }, video.current.currentTime));
     setBox(null);
     setRangeStart(null);
-    return mark.id;
+    return `Sent to the agent as ${mark.id}.`;
   };
 
   if (!document.source) return null;

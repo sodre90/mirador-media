@@ -550,3 +550,80 @@ button.icon.play:hover:not(:disabled) {
 .marks li.done .note {
   text-decoration: line-through;
 }
+
+main.items section h2 {
+  margin: 4px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.item-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+.item.picked {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.item .pick {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  background: none;
+  padding: 2px 4px;
+  text-align: left;
+  min-width: 0;
+}
+.item .pick strong,
+.item-file {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.item-file {
+  color: var(--muted);
+  font: 11px ui-monospace, Menlo, monospace;
+}
+.item-media {
+  width: 100%;
+  border-radius: 6px;
+}
+video.item-media,
+img.item-media,
+.item-media.loading {
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  background: #000;
+}
+audio.item-media {
+  height: 36px;
+}
+.item-media.problem {
+  margin: 0;
+  color: var(--mark);
+}
+main.items > .composer,
+main.items > .pick-hint {
+  position: sticky;
+  bottom: 0;
+}
+main.items > .pick-hint {
+  margin: 0;
+  padding: 8px 0;
+  background: var(--bg);
+}

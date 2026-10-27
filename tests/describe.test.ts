@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { describeDocument, describeEdits, OPERATIONS_HELP, PHOTO_OPERATIONS_HELP, wholeClipEdits } from "../shared/describe.ts";
+import { describeDocument, describeEdits, ITEMS_OPERATIONS_HELP, OPERATIONS_HELP, PHOTO_OPERATIONS_HELP, wholeClipEdits } from "../shared/describe.ts";
 import { newDocument, NO_EDITS, type MediaDocument } from "../shared/document.ts";
 import { markMessage } from "../shared/mark-message.ts";
 import { applyOperation } from "../shared/operations.ts";
@@ -8,6 +8,22 @@ import { formatTime, frameAt, frameMiddle } from "../shared/time.ts";
 const probe = { width: 1920, height: 1080, duration: 83.4, fps: 29.97, audio: true };
 
 describe("describeDocument", () => {
+  test("lists files to choose from by group, says how the user's pick reaches the agent, and how to list them again or edit one", () => {
+    const items = [
+      { file: "voices/01-am_fenrir.wav", label: "Fenrir", group: "Narrator" },
+      { file: "voices/02-af_heart.wav", label: "02-af_heart.wav", group: "Narrator" },
+      { file: "voices/21-bm_george.wav", label: "George", group: "Agent" },
+    ];
+    expect(describeDocument({ ...newDocument(), items })).toBe(
+      [
+        'Files to choose from, which the user plays or looks at in a grid. When they pick one and write about it, you get "About <label> (<file>): <their words>".\nNarrator:\n- Fenrir (voices/01-am_fenrir.wav)\n- voices/02-af_heart.wav\nAgent:\n- George (voices/21-bm_george.wav)',
+        ITEMS_OPERATIONS_HELP,
+      ].join("\n\n"),
+    );
+    expect(ITEMS_OPERATIONS_HELP).toContain('{ op: "source", file: "clip.mp4" }');
+    expect(OPERATIONS_HELP).toContain('{ op: "items"');
+  });
+
   test("a document with no video tells the agent how to name one, or a photo", () => {
     expect(describeDocument(newDocument())).toStartWith('No video or photo yet. Name the one to edit, next to this file, with { op: "source", file: "clip.mp4" }, or app_open the video itself; a photo is a .jpg, .png, .webp or .heic.');
   });

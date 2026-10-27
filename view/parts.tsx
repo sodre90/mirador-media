@@ -190,16 +190,16 @@ export function MarkList({ document, onSeek }: { document: MediaDocument; onSeek
   );
 }
 
-/** The note the user writes about what they marked, over what is marked and its sending, like a message to the agent. */
-export function Composer({ marked, send }: { marked: ReactNode; send: (note: string) => Promise<string> }) {
+/** The note the user writes about what they marked, over what is marked and its sending, like a message to the agent; send says how it went. */
+export function Composer({ marked, send, question = "What's wrong here" }: { marked: ReactNode; send: (note: string) => Promise<string>; question?: string }) {
   const [note, setNote] = useState("");
   const [status, setStatus] = useState<{ sending: boolean; text: string } | null>(null);
   const submit = async () => {
     setStatus({ sending: true, text: "Sending…" });
     try {
-      const id = await send(note);
+      const sent = await send(note);
       setNote("");
-      setStatus({ sending: false, text: `Sent to the agent as ${id}.` });
+      setStatus({ sending: false, text: sent });
     } catch (error) {
       setStatus({ sending: false, text: (error as Error).message });
     }
@@ -210,8 +210,8 @@ export function Composer({ marked, send }: { marked: ReactNode; send: (note: str
       <textarea
         value={note}
         rows={Math.min(6, Math.max(2, note.split("\n").length))}
-        placeholder="What's wrong here? (Enter to send, Shift+Enter for a new line)"
-        aria-label="What's wrong here"
+        placeholder={`${question}? (Enter to send, Shift+Enter for a new line)`}
+        aria-label={question}
         onChange={(event) => setNote(event.target.value)}
         onKeyDown={(event) => {
           if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;

@@ -29,7 +29,7 @@ export function PhotoEditor({ state }: { state: AppDocumentState<MediaDocument> 
     window.mirador.apply(operation);
     await window.mirador.prompt(markMessage(document.source.file, probe, mark, { exposure, frame: previewing ? edits : NO_EDITS }, 0));
     setBox(null);
-    return mark.id;
+    return `Sent to the agent as ${mark.id}.`;
   };
 
   if (!document.source) return null;
